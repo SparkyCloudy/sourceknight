@@ -4,16 +4,19 @@ import os
 import pathlib
 import platform
 import shutil
-import urllib
+from urllib.parse import urlparse
+
 import requests
 import uuid
 
 from importlib.metadata import version
 from urllib.request import url2pathname
 
+from requests.adapters import HTTPAdapter
+
 
 # https://stackoverflow.com/a/27786580
-class LocalFileAdapter(requests.adapters.BaseAdapter):
+class LocalFileAdapter(HTTPAdapter):
     @staticmethod
     def _chkpath(method, path):
         if method.lower() in ('put', 'delete'):
@@ -59,11 +62,11 @@ def ensure_path_exists(p):
     pathlib.Path(p).mkdir(parents=True, exist_ok=True)
 
 
-class filemgr (object):
+class FileManager (object):
     def __init__(self, ctx, directory, entire_directory=False):
         self._ctx = ctx
         self._sess = requests.session()
-        self._sess.mount("file://", LocalFileAdapter)
+        self._sess.mount("file://", LocalFileAdapter())
         self._tmpfiles = []
         self.path = str(os.path.join(self._ctx.path, '.sourceknight', directory))
         self._entire_dir = entire_directory
@@ -96,7 +99,7 @@ class filemgr (object):
         if ext is None:
             ext = mimetypes.guess_extension(mimetypes.guess_type(url)[0])
         if ext is None:
-            ext = os.path.splitext(urllib.parse.urlparse(url).path)[1]
+            ext = os.path.splitext(urlparse(url).path)[1]
 
         tmp = os.path.join(self.path, '{}{}'.format(uuid.uuid4().hex, ext))
         self._tmpfiles.append(tmp)
@@ -128,9 +131,9 @@ def once(fn):
     return wrapped
 
 
-class skversion (object):
+class SkVersion (object):
 
-    class compat (object):
+    class SkCompatible (object):
         major = False
         newer = False
 
@@ -139,7 +142,7 @@ class skversion (object):
         self.major, self.minor = map(int, v.split('.', 2))
     
     def compatibility(self, other):
-        res = skversion.compat()
+        res = SkVersion.SkCompatible()
         if self.major != other.major:
             res.major = True
         elif self.minor < other.minor:
@@ -157,8 +160,8 @@ def check_version(defs):
     except KeyError:
         logging.warning("No version detected in manifest, defaulting to 0.1. In the future, a version will be required in the manifest.")
         ver = "0.1"
-    ver = skversion(ver)
-    cur = skversion(version('sourceknight'))
+    ver = SkVersion(ver)
+    cur = SkVersion(version('sourceknight'))
     err = RuntimeError("this version of sourceknight is incompatible with this manifest")
     compat = cur.compatibility(ver)
     if compat.major:
@@ -170,7 +173,7 @@ def check_version(defs):
 
 
 def extract_and_copy(drvcls, locations, mgr, tmp):
-    from sourceknight.drivers import gitdriver
+    from sourceknight.drivers import GitDriver
     for l in locations:
         if l['source'][0] == '/':
             l['source'] = l['source'][1:]
@@ -180,7 +183,7 @@ def extract_and_copy(drvcls, locations, mgr, tmp):
         src = os.path.normpath(os.path.join(tmp.path, str(l['source'])))
         dst = os.path.normpath(os.path.join(mgr.path, str(l['dest'])))
 
-        if isinstance(drvcls, gitdriver):
+        if isinstance(drvcls, GitDriver):
             src = os.path.normpath(os.path.join(str(drvcls.model.params['location']), l['source']))
 
         logging.info("Extracting {} to {}".format(src, dst))

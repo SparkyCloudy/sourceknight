@@ -4,10 +4,10 @@ import platform
 import shutil
 import subprocess
 
-from .errors import skerror
+from .errors import SkError
 from .utils import cd, ensure_path_exists
 
-class compile (object):
+class CompileManager (object):
     if platform.architecture()[0] == '64bit':
         _default_compiler = "/addons/sourcemod/scripting/spcomp64"
     else:
@@ -34,7 +34,7 @@ class compile (object):
         if not len(targets):
             targets = all_targets
         elif any(t not in all_targets for t in targets):
-            raise skerror("One or more of specified targets not defined: {}".format(', '.join(targets)))
+            raise SkError("One or more of specified targets not defined: {}".format(', '.join(targets)))
 
         try:
             workdir = self._ctx.defs['workdir']

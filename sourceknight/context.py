@@ -8,8 +8,8 @@ except ImportError:
     from yaml import Loader as yamlLoader
     from yaml import Dumper as yamlDumper
 
-from .errors import skerror
-from .state import state
+from .errors import SkError
+from .state import State
 
 class context (object):
     def __init__(self, path):
@@ -30,12 +30,12 @@ class context (object):
             with open(path, 'r') as fh:
                 self.defs: dict = yaml.load(fh, Loader=yamlLoader)['project']
         except OSError:
-            raise skerror("Project directory does not exist or does not contain sourceknight.yaml")
+            raise SkError("Project directory does not exist or does not contain sourceknight.yaml")
         except yaml.YAMLError as e:
             err_str = str(e)
             if hasattr(e, 'problem_mark'):
                 err_str += " ({:s}:{:s})".format(e.problem_mark.line+1, e.problem_mark.column+1)
-            raise skerror("Failed parsing sourceknight.yaml: {:s}".format(err_str))
+            raise SkError("Failed parsing sourceknight.yaml: {:s}".format(err_str))
 
         check_version(self.defs)
 
@@ -43,12 +43,12 @@ class context (object):
         try:
             path = os.path.join(self.path, '.sourceknight', 'state.yaml')
             with open(path, 'r') as fh:
-                self.state = state.from_yaml(self.defs, yaml.load(fh, Loader=yamlLoader))
+                self.state = State.from_yaml(self.defs, yaml.load(fh, Loader=yamlLoader))
             self._exists = True
         except OSError:
-            self.state = state()
+            self.state = State()
         except yaml.YAMLError:
-            raise skerror("sourceknight state is corrupted, try removing the .sourceknight directory")\
+            raise SkError("sourceknight state is corrupted, try removing the .sourceknight directory")\
 
         return self
 

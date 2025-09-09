@@ -1,5 +1,4 @@
-
-class state (object):
+class State:
     def __init__(self):
         self._dict = {'dependencies': {}, 'build': {}}
         self._clean = True

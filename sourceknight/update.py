@@ -1,8 +1,8 @@
+from .dependencies import DependencyManager
+from .utils import FileManager
 
-from .dependencies import depmgr
-from .utils import filemgr
 
-class update (object):
+class Update:
     def __init__(self, context):
         self._ctx = context
 
@@ -12,11 +12,12 @@ class update (object):
 
     @classmethod
     def add_args(cls, parser):
-        parser.add_argument('-f,--force', dest='force', action='store_true', help="Force updating all dependencies, even if they are believed to be up to date")
+        parser.add_argument('-f,--force', dest='force', action='store_true',
+                            help="Force updating all dependencies, even if they are believed to be up to date")
 
     def __call__(self, args):
         self._ctx.ensure_working_directory_exists()
-        dmgr = depmgr(self._ctx)
-        with filemgr(self._ctx, "cache") as fmgr:
+        dmgr = DependencyManager(self._ctx)
+        with FileManager(self._ctx, "cache") as fmgr:
             for dep in self._ctx.defs['dependencies']:
                 dmgr.update(dep, fmgr, args.force)

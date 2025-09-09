@@ -5,9 +5,9 @@ import uuid
 import zipfile
 
 from .base import basedriver
-from ..utils import filemgr, extract_and_copy
+from ..utils import FileManager, extract_and_copy
 
-class zipdriver(basedriver):
+class ZipDriver(basedriver):
     def __init__(self, ctx, model):
         super().__init__(ctx, model)
 
@@ -22,7 +22,7 @@ class zipdriver(basedriver):
         })
 
     def unpack(self, mgr, locations):
-        with filemgr(self.ctx, uuid.uuid4().hex, True) as tmp:
+        with FileManager(self.ctx, uuid.uuid4().hex, True) as tmp:
             zip_path = os.path.join(self.ctx.path, str(self.model.params['location']))
             tmp_path = tmp.path
 

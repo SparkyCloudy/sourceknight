@@ -2,7 +2,8 @@ import argparse
 import sys
 import logging
 
-from sourceknight import update, status, unpack, build, compile, skerror, context
+from sourceknight import Update, Status, unpack, CompileManager, Build, context
+from .errors import SkError
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -15,30 +16,30 @@ def main():
     subparsers = parser.add_subparsers(dest='command')
     subparsers.required = True
 
-    update.add_args(update.install(subparsers))
-    status.add_args(status.install(subparsers))
+    Update.add_args(Update.install(subparsers))
+    Status.add_args(Status.install(subparsers))
     unpack.add_args(unpack.install(subparsers))
-    compile.add_args(compile.install(subparsers))
-    build.add_args(build.install(subparsers))
+    CompileManager.add_args(CompileManager.install(subparsers))
+    Build.add_args(Build.install(subparsers))
 
     args = parser.parse_args()
 
     command_map = {
-        'update': update,
-        'status': status,
+        'update': Update,
+        'status': Status,
         'unpack': unpack,
-        'compile': compile,
-        'build': build
+        'compile': CompileManager,
+        'build': Build
     }
 
     try:
         try:
             command = command_map[args.command]
         except KeyError:
-            raise skerror("Unknown command {:s}".format(args.command))
+            raise SkError("Unknown command {:s}".format(args.command))
         with context(args.path) as ctx:
             command(ctx)(args)
-    except skerror as e:
+    except SkError as e:
         logging.error(e)
         sys.exit(1)
 

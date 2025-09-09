@@ -2,8 +2,8 @@ import os
 import shutil
 import logging
 
-from .utils import filemgr
-from .dependencies import depmgr
+from .utils import FileManager
+from .dependencies import DependencyManager
 
 class unpack (object):
     def __init__(self, context):
@@ -24,15 +24,15 @@ class unpack (object):
         if args.clean:
             d = os.path.join(self._ctx.path, '.sourceknight', 'build')
             logging.info("Deleting existing build directory ({:s})...".format(d))
-            for k in list(self._ctx.state.build):
-                del self._ctx.state.build[k]
+            for k in list(self._ctx.state.Build):
+                del self._ctx.state.Build[k]
             try:
                 shutil.rmtree(d)
             except FileNotFoundError:
                 pass
 
-        dmgr = depmgr(self._ctx)
-        with filemgr(self._ctx, "build", True) as fmgr:
+        dmgr = DependencyManager(self._ctx)
+        with FileManager(self._ctx, "build", True) as fmgr:
             try:
                 for dep in self._ctx.defs['dependencies']:
                     dmgr.unpack(self._ctx.state.dependencies[dep['name']], dep['unpack'], fmgr, args.force)

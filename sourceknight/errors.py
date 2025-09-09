@@ -1,4 +1,4 @@
 
-class skerror (RuntimeError):
+class SkError (RuntimeError):
     pass
 

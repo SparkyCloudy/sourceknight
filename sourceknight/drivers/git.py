@@ -4,9 +4,9 @@ import git
 import os
 import logging
 
-from sourceknight.utils import extract_and_copy, filemgr
+from sourceknight.utils import extract_and_copy, FileManager
 
-class gitdriver (basedriver):
+class GitDriver(basedriver):
     def __init__(self, ctx, model):
         super().__init__(ctx, model)
 
@@ -43,5 +43,5 @@ class gitdriver (basedriver):
             repo.close()
 
     def unpack(self, mgr, locations):
-        with filemgr(self.ctx, 'cache') as tmp:
+        with FileManager(self.ctx, 'cache') as tmp:
             extract_and_copy(self, locations, mgr, tmp)

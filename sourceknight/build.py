@@ -1,31 +1,32 @@
-from .update import update
+from .update import Update
 from .unpack import unpack
-from .compile import compile
-
+from .compilemanager import CompileManager
 import logging
 
-class build (object):
+
+class Build:
     def __init__(self, ctx):
         self._ctx = ctx
-        self._update = update
+        self._update = Update
         self._unpack = unpack
-        self._compile = compile
+        self._compile = CompileManager
 
     @classmethod
     def install(cls, subparsers):
         return subparsers.add_parser('build', help='Equivalent to running update, unpack, compile')
-    
+
     @classmethod
     def add_args(cls, parser):
-        update.add_args(parser)
+        Update.add_args(parser)
         unpack.add_args(parser)
-        compile.add_args(parser)
+        CompileManager.add_args(parser)
 
     def __call__(self, args):
+        ctx = self._ctx
         logging.info("Updating...")
-        self._update(self._ctx)(args)
+        Update(ctx)(args)
         logging.info("Unpacking...")
-        self._unpack(self._ctx)(args)
+        unpack(ctx)(args)
         logging.info("Compiling...")
-        self._compile(self._ctx)(args)
+        CompileManager(ctx)(args)
         logging.info("Done")

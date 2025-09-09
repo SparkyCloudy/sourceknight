@@ -1,8 +1,8 @@
-from sourceknight.drivers import tardriver, gitdriver, filedriver, zipdriver
+from sourceknight.drivers import TarDriver, GitDriver, FileDriver, ZipDriver
 from .utils import adjust_sourcemod_platform
 import logging
 
-class dependency (object):
+class Dependency:
     def __init__(self):
         self.name = None
         self.type = None
@@ -30,22 +30,22 @@ class dependency (object):
 
 
 drivers_by_name = {
-    'tar': tardriver,
-    'git': gitdriver,
-    'file': filedriver,
-    'zip': zipdriver
+    'tar': TarDriver,
+    'git': GitDriver,
+    'file': FileDriver,
+    'zip': ZipDriver
 }
 
 
-class depmgr (object):
+class DependencyManager:
     def __init__(self, ctx):
         self._ctx = ctx
 
     def unpack(self, dep, locations, fmgr, force=False):
-        d = dependency.from_yaml(dep)
+        d = Dependency.from_yaml(dep)
         current_model = None
         try:
-            current_model = dependency.from_yaml(self._ctx.state.build[d.name])
+            current_model = Dependency.from_yaml(self._ctx.state.build[d.name])
         except KeyError:
             pass
 
@@ -66,10 +66,10 @@ class depmgr (object):
             logging.info("Already up to date: {}".format(d.name))
 
     def update(self, dep, fmgr, force=False):
-        new_model = dependency.from_yaml(dep)
+        new_model = Dependency.from_yaml(dep)
         current_model = None
         try:
-            current_model = dependency.from_yaml(self._ctx.state.dependencies[new_model.name])
+            current_model = Dependency.from_yaml(self._ctx.state.dependencies[new_model.name])
         except KeyError:
             pass
 

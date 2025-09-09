@@ -4,10 +4,10 @@ import tarfile
 import uuid
 
 from .base import basedriver
-from ..utils import filemgr, tar_safe_extract, extract_and_copy
+from ..utils import FileManager, tar_safe_extract, extract_and_copy
 
 
-class tardriver(basedriver):
+class TarDriver(basedriver):
     def __init__(self, ctx, model):
         super().__init__(ctx, model)
 
@@ -22,7 +22,7 @@ class tardriver(basedriver):
         })
 
     def unpack(self, mgr, locations):
-        with filemgr(self.ctx, uuid.uuid4().hex, True) as tmp:
+        with FileManager(self.ctx, uuid.uuid4().hex, True) as tmp:
             with tarfile.open(os.path.join(self.ctx.path, self.model.params['location'])) as tar:
                 logging.info(" Unpacking archive...")
                 tar_safe_extract(tar, tmp.path)
