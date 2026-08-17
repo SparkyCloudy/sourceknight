@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -15,11 +17,11 @@ class Command(ABC):
     # The help text for the command
     help: str = ""
 
-    def __init__(self, context: "Context") -> None:
+    def __init__(self, context: Context) -> None:
         self._context: Context = context
 
     @classmethod
-    def install(cls, subparsers: argparse._SubParsersAction[Any]) -> None:  # type: ignore[type-arg]
+    def install(cls, subparsers: Any) -> None:
         """Installs the command's subparser and arguments."""
         parser = subparsers.add_parser(cls.name, help=cls.help)
         cls.add_args(parser)
