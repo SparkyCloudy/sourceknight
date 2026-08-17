@@ -21,9 +21,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "mypy>=1.10.0",
+    "ruff>=0.1.0",
     "types-PyYAML",
     "types-requests"
 ]
+
 
 [project.urls]
 Homepage = "https://github.com/tmick0/sourceknight"

@@ -2,7 +2,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
-import git
+from git.repo import Repo
 
 from ..utils import FileManager, extract_and_copy
 from .base import basedriver
@@ -26,11 +26,12 @@ class GitDriver(basedriver):
 
         fetched = False
         if os.path.isdir(loc):
-            repo = git.Repo(loc)
+            repo = Repo(loc)
         else:
             logging.info(" Cloning from %s", self.model.params['repo'])
-            repo = git.Repo.clone_from(self.model.params['repo'], loc)
+            repo = Repo.clone_from(self.model.params['repo'], loc)
             fetched = True
+
 
         try:
             if self.model.version is None:
