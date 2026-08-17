@@ -1,4 +1,4 @@
-name: Release & Publish
+name: Release
 
 on:
   push:
@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   build-and-release:
@@ -26,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Build & Release Dependencies
+      - name: Install Build Tools
         run: |
           python -m pip install --upgrade pip
           pip install build twine
@@ -46,8 +45,11 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') && env.HAVE_PYPI_TOKEN != ''
+        env:
+          HAVE_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
+
 
