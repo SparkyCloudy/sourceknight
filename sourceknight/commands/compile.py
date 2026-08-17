@@ -4,6 +4,8 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
+import json
 
 from sourceknight import SkError
 from sourceknight.utils import cd, ensure_path_exists
@@ -25,6 +27,10 @@ class Compile(Command):
     def add_args(cls, parser: argparse.ArgumentParser) -> None:
         parser.add_argument('-o,--output-dir', dest='output', default=None,
                             help='Specify directory to store compiled smx files (default from manifest, or current directory if not specified)')
+        parser.add_argument('--fail-fast', dest='fail_fast', action='store_true',
+                            help='Abort immediately on the first compilation failure')
+        parser.add_argument('--report', dest='report', default=None, choices=['json'],
+                            help='Generate a structured report of the compilation results (e.g., json)')
         parser.add_argument('targets', nargs='*',
                             help='List of specific targets to compile (by default, will compile all)')
 
@@ -106,14 +112,59 @@ class Compile(Command):
             shutil.copytree(str(os.path.join(self._context.path, root)), buildroot, dirs_exist_ok=True,
                             ignore=copy_filter)
 
+        report_path = os.path.abspath(os.path.join(self._context.path, "compile_report.json"))
+
         with cd(workdir_path):
             ensure_path_exists(abs_output)
+            results = []
+            has_failure = False
+
             for t in targets:
                 infile = f'{t}.sp'
                 outfile = os.path.join(abs_output, f'{t}.smx')
                 logging.info("Building %s...", t)
-                result = subprocess.run([compiler_path, infile, f"-o{outfile}"])
-                if result.returncode != 0:
-                    raise SkError(f"Compilation failed for target '{t}' with exit code {result.returncode}")
+                
+                result = subprocess.run([compiler_path, infile, f"-o{outfile}"], capture_output=True, text=True, errors='replace')
+                
+                if result.stdout:
+                    sys.stdout.write(result.stdout)
+                if result.stderr:
+                    sys.stderr.write(result.stderr)
+                
+                success = result.returncode == 0
+                results.append({
+                    "target": t,
+                    "success": success,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr
+                })
 
+                if not success:
+                    has_failure = True
+                    logging.error(f"Compilation failed for target '{t}' with exit code {result.returncode}")
+                    if args.fail_fast:
+                        break
+            
+            success_count = sum(1 for r in results if r["success"])
+            fail_count = len(results) - success_count
+            
+            if len(targets) > 1 or args.report:
+                logging.info(f"Compilation summary: {success_count} succeeded, {fail_count} failed out of {len(results)} total target(s).")
+
+            if args.report == 'json':
+                report_data = {
+                    "summary": {
+                        "total": len(results),
+                        "success": success_count,
+                        "failed": fail_count,
+                    },
+                    "targets": results
+                }
+                with open(report_path, "w", encoding="utf-8") as f:
+                    json.dump(report_data, f, indent=2)
+                logging.info(f"Structured JSON report written to {report_path}")
+
+            if has_failure:
+                raise SkError(f"Compilation failed for {fail_count} target(s).")
 
