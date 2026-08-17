@@ -1,38 +1,46 @@
-from .base import basedriver
+import logging
+import os
+from typing import TYPE_CHECKING, Optional
 
 import git
-import os
-import logging
 
-from sourceknight.utils import extract_and_copy, FileManager
+from ..utils import FileManager, extract_and_copy
+from .base import basedriver
+
+if TYPE_CHECKING:
+    from sourceknight.context import Context
+    from sourceknight.dependencies import Dependency
+
 
 class GitDriver(basedriver):
-    def __init__(self, ctx, model):
+    """Driver for cloning and checking out Git repositories."""
+
+    def __init__(self, ctx: "Context", model: "Dependency") -> None:
         super().__init__(ctx, model)
 
-    def check_update(self, current_model):
+    def check_update(self, current: Optional["Dependency"]) -> bool:
         return True
 
-    def update(self, mgr):
-        loc = str(os.path.join(self.ctx.path, '.sourceknight', 'cache', self.model.name))
+    def update(self, mgr: FileManager) -> None:
+        loc = str(os.path.join(self.ctx.path, '.sourceknight', 'cache', str(self.model.name)))
 
         fetched = False
         if os.path.isdir(loc):
             repo = git.Repo(loc)
         else:
-            logging.info(' Cloning from {:s}'.format(self.model.params['repo']))
+            logging.info(" Cloning from %s", self.model.params['repo'])
             repo = git.Repo.clone_from(self.model.params['repo'], loc)
             fetched = True
 
         try:
             if self.model.version is None:
                 if not fetched:
-                    logging.info(' Pulling from {:s}'.format(repo.remote().url))
+                    logging.info(" Pulling from %s", repo.remote().url)
                     repo.remote().pull()
-                self.model.version = repo.head.commit.hexsha
+                self.model.version = str(repo.head.commit.hexsha)
             else:
                 if not fetched:
-                    logging.info(' Fetching from {:s}'.format(repo.remote().url))
+                    logging.info(" Fetching from %s", repo.remote().url)
                     repo.remote().fetch()
                 repo.head.reset(self.model.version, working_tree=True)
 
@@ -42,6 +50,6 @@ class GitDriver(basedriver):
         finally:
             repo.close()
 
-    def unpack(self, mgr, locations):
+    def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
         with FileManager(self.ctx, 'cache') as tmp:
-            extract_and_copy(self, locations, mgr, tmp)
+            extract_and_copy(self, locations, mgr, tmp)
