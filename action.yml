@@ -53,10 +53,9 @@ runs:
     - name: Install Sourceknight
       shell: bash
       run: |
-        if [ -n "${{ inputs.sourceknight-version }}" ]; then
-          pip install --prefer-binary "sourceknight==${{ inputs.sourceknight-version }}"
-        elif [ -f "${{ github.action_path }}/pyproject.toml" ]; then
-          pip install --prefer-binary "${{ github.action_path }}"
+        SK_VER="${{ inputs.sourceknight-version }}"
+        if [ -n "$SK_VER" ]; then
+          pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/v${SK_VER}/sourceknight-${SK_VER}-py3-none-any.whl" || pip install --prefer-binary "sourceknight==${SK_VER}"
         else
-          pip install --prefer-binary git+https://github.com/SparkyCloudy/sourceknight.git
+          pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/v0.5.0/sourceknight-0.5.0-py3-none-any.whl" || pip install --prefer-binary "${{ github.action_path }}" || pip install --prefer-binary git+https://github.com/SparkyCloudy/sourceknight.git
         fi
