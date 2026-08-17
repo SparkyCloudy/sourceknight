@@ -1,0 +1,58 @@
+name: 'Setup Sourceknight'
+description: 'Set up Sourceknight build system and dependency manager for SourcePawn'
+author: 'Sourceknight Maintainers'
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  python-version:
+    description: 'Python version to set up'
+    required: false
+    default: '3.12'
+  sourceknight-version:
+    description: 'Sourceknight package version to install'
+    required: false
+    default: ''
+  cache:
+    description: 'Whether to enable dependency cache for .sourceknight/cache'
+    required: false
+    default: 'true'
+  project-path:
+    description: 'Path to directory containing sourceknight.yaml'
+    required: false
+    default: '.'
+
+outputs:
+  cache-hit:
+    description: 'Whether the dependency cache was restored'
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache Sourceknight dependencies
+      if: ${{ inputs.cache == 'true' }}
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.project-path }}/.sourceknight/cache
+        key: sourceknight-${{ runner.os }}-${{ hashFiles(format('{0}/sourceknight.yaml', inputs.project-path)) }}
+        restore-keys: |
+          sourceknight-${{ runner.os }}-
+
+    - name: Install Sourceknight
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.sourceknight-version }}" ]; then
+          pip install "sourceknight==${{ inputs.sourceknight-version }}"
+        elif [ -f "${{ github.action_path }}/pyproject.toml" ]; then
+          pip install "${{ github.action_path }}"
+        else
+          pip install sourceknight
+        fi
