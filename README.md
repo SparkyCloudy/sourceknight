@@ -1,166 +1,276 @@
 # sourceknight
 
-A simple dependency manager and build system for sourcemod projects
+> **A modern, reproducible dependency manager and build tool tailored specifically for SourceMod plugin development.**
 
-## Overview
+`sourceknight` brings modern package management and build automation (similar to `cargo` or `npm`) to the SourcePawn / SourceMod ecosystem. It eliminates the hassle of manually downloading `.inc` headers, juggling SDK zip files, or committing third-party libraries directly into your Git repositories.
 
-`sourceknight` was created to simplify the process of building and developing sourcemod plugins. It lets you specify dependencies in a configuration file so they can be automatically updated, and manages the sourcemod build tree for you.
+---
 
-Right now, `sourceknight` is essentially a proof of concept -- it is only capable of building some simple projects on Linux hosts. It can acquire and unpack dependencies from git repos or tar archives and run `spcomp`. Additional functionality will be implemented as needed (or maybe requested).
+## Why Sourceknight for SourceMod Developers?
 
-## Building and installing
+| Traditional SourceMod Workflow                                             | With Sourceknight                                                                               |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Manually downloading and extracting SourceMod SDK & compiler (`spcomp`).   | Declare `type: smdrop` and let Sourceknight download the compiler automatically for your OS.    |
+| Committing dozens of third-party `.inc` files into your plugin's git repo. | Declare Git repositories or archives as dependencies; keep your repository clean.               |
+| Broken local builds due to header version mismatches between team members. | Hermetic, reproducible build environments generated from `sourceknight.yaml`.                   |
+| Complex CI/CD GitHub Actions scripts just to compile `.sp` to `.smx`.      | Single-step GitHub Action (`setup-sourceknight`) with matrix support across SourceMod versions. |
 
-You can now install `sourceknight` from pypi: `pip install sourceknight`.
+---
 
-Alternatively, compile and install from source: `pip install .`.
+## Key Features
 
-## Defining a project
+- 🎯 **Tailored for SourceMod**: Native understanding of SourceMod directory hierarchies (`addons/sourcemod/scripting`, `include/`, `plugins/`, `gamedata/`, etc.).
+- 🚀 **Smart SourceMod Resolution (`smdrop`)**: Automatically resolves and fetches the latest `spcomp` and headers (e.g., `version: 1.12.x` or `1.11.x`) from AlliedModders across Linux and Windows.
 
-The core concept of `sourceknight` is the *project*, which encapsulates any plugins you're trying to build and their dependencies (including sourcemod itself).
+- 📦 **Multi-Source Dependency Management**: Pull third-party include libraries from **Git repos**, **Zip/Tar releases**, **Local files**, or **SMDrop**.
+- 🪄 **Heuristic Auto-Unpacking**: Automatically extracts and maps includes and scripts to their proper locations in the build tree without requiring manual mapping rules.
+- ⚡ **CI/CD Matrix Testing**: Easily test your plugin against multiple SourceMod versions using CLI flags (`--override-dep`) or environment variables.
+- 🤖 **Official GitHub Action**: Pre-built composite action with built-in caching for fast, friction-free CI/CD pipelines.
 
-A *project directory* will include a *project file* called `sourceknight.yaml` that defines all the parameters of your project, including its name,
-its dependencies, and the plugins it will build. The project file is written in [YAML](https://en.wikipedia.org/wiki/YAML).
+---
 
-If building your own plugin, your project directory will likely also include any sourcepawn files you need, but this is optional --
-you can also also use `sourceknight` just to simplify compiling a collection of third party plugins by declaring them as dependencies.
+## Installation
 
-A minimal `sourceknight.yaml` might look something like this:
+Install `sourceknight` via `pip`:
+
+```bash
+pip install sourceknight
+```
+
+_Requires Python >= 3.12._
+
+---
+
+## Quickstart: Creating a SourceMod Plugin Project
+
+### 1. Typical Project Directory Layout
+
+```text
+my-sourcemod-plugin/
+├── sourceknight.yaml
+└── plugins/
+    └── addons/
+        └── sourcemod/
+            └── scripting/
+                ├── my_plugin.sp
+                └── include/
+                    └── my_plugin_internal.inc
+```
+
+### 2. Configure `sourceknight.yaml`
 
 ```yaml
 project:
-  name: myplugin-example
-  sourceknight: 0.3
+  sourceknight: 0.5
+  name: my-sourcemod-plugin
+
   dependencies:
+    # Official SourceMod compiler & core includes
     - name: sourcemod
-      type: tar
-      version: 1.10.0-git6503
-      location: https://sm.alliedmods.net/smdrop/1.10/sourcemod-1.10.0-git6503-linux.tar.gz
-      unpack:
-      - source: /addons
-        dest: /addons
-  root: /
+      type: smdrop
+      version: 1.12.x
+
+    # Third-party library from GitHub (auto-extracted to scripting/include/)
+    - name: sourcecolors
+      type: git
+      repo: https://github.com/Ilusion9/sourcecolors-inc-sm
+
+    # Third-party include release archive
+    - name: autoexecconfig
+      type: zip
+      location: https://github.com/Impact123/AutoExecConfig/releases/download/v1.0.0/autoexecconfig.zip
+
+  # Path to your plugin source files
+  root: /plugins
+
+  # List of target .sp files to compile (without .sp extension)
   targets:
-    - myplugin
+    - my_plugin
 ```
 
-Here, we're just telling `sourceknight` where to download `sourcemod` itself, and specifying that we want to build `myplugin`.
+### 3. Write Your Plugin (`plugins/.../scripting/my_plugin.sp`)
 
-Details about the individual sections of the project file follow.
+```sourcepawn
+#include <sourcemod>
+#include <sourcecolors>
+#include <autoexecconfig>
 
-### Metadata
+public Plugin myinfo = {
+    name = "My Awesome Plugin",
+    author = "Your Name",
+    description = "Demonstrating Sourceknight dependency management",
+    version = "1.0.0",
+    url = "https://github.com/yourname/my-plugin"
+};
 
-The `name` key specifies the name of your project. (Technically, it isn't even required to be specified right now, but that might change.)
+public void OnPluginStart() {
+    CPrintToChatAll("{green}[MyPlugin]{default} Successfully loaded with managed dependencies!");
+}
+```
 
-The `sourceknight` key specifies the version of sourceknight this package was designed for. This allows users to be warned if they need to update.
-
-### Dependencies
-
-Dependencies describe any external code, including external plugins you want to build, include files you need, and even `sourcemod` itself. You will likely need to specify the `sourcemod` dependency for every project because it provides the compiler for sourcepawn code (`spcomp`) as well as several essential headers.
-
-The most important keys in your dependency declarations are its `name`, its `type`, and `unpack` instructions. Each dependency must have a unique `name`. The `type` tells `sourceknight` how to acquire the dependency.
-
-Depending on the `type`, different additional fields may be required. Right now, only two `type`s are supported: `git` and `tar`, which refer to git repositories and tar archives, respectively.
-
-**`tar`:**
-
-- `location`: URL to download the tar file from
-- Optional: `version`, which can be manually specified to help prevent re-downloading the same file unnecessarily
-
-**`git`:**
-
-- `repo`: Git repository URL to clone
-- Optional: `version`, a commit tag or branch to checkout instead of the default
-
-Both of these types of dependencies must have an `unpack` block, which tells us which files to copy out of them and where they belong relative to the `sourceknight` *build root*. The build root is a hidden directory maintained by `sourceknight` which will contain the entire sourcemod tree (i.e., it will contain the `addons` directory) as well as any other dependencies and sources specified by your project.
-
-In the example above, the `unpack` declaration for `sourcemod` says to unpack the `/addons` directory to `/addons`. In sourcemod's case, this means we're copying the entire contents of the archive. However, the [extended example project file](example/sourceknight.yaml) includes other examples of unpack declarations. Note that the destination of an unpack operation is always relative to the build tree. Multiple `source`, `dest` pairs can be specified in the `unpack` section if needed.
-
-### Build specification
-
-The last part of the example specifies how to build the project.
-
-The `root` key tells `sourceknight` where in the project directory your source tree originates. That is, a sourcemod project will typically have a structure containing `/addons/sourcemod/scripting/` -- in this case `root` will refer to the directory that contains `addons`, relative to your project directory. Note that your project does not need to specify a `root` if you aren't compiling any sources of your own (i.e., you're only compiling external plugins you specified as dependencies).
-
-The `targets` list contains all the plugins you want built, whether from dependencies or your own sources. Each of these should have a corresponding `.sp` file in the `/addons/sourcemod/scripting` directory and will result in a `.smx` file being generated.
-
-You can optionally specify two additional keys that tell `sourceknight` how to compile your project: `compiler` to override the default location of `spcomp`, and `workdir` to define the working directory for compilation (both relative to the build root).
-
-## Building your project
-
-The easy way to get `sourceknight` to build your project is to simply go to your project directory and run the `build` command:
+### 4. Build Your Plugin
 
 ```bash
-example$ sourceknight build
-Updating...
-Updating: sourcemod
- Downloading https://sm.alliedmods.net/smdrop/1.10/sourcemod-1.10.0-git6503-linux.tar.gz...
-Updating: sourcecolors
- Cloning from https://github.com/Ilusion9/sourcecolors-inc-sm
-Updating: extend-map
- Cloning from https://github.com/Ilusion9/extend-map-sm
-Unpacking...
-Unpacking sourcemod...
- Unpacking archive...
- Extracting addons to addons
-Unpacking sourcecolors...
- Extracting include to addons/sourcemod/scripting/include
-Unpacking extend-map...
- Extracting scripting to addons/sourcemod/scripting
-Compiling...
-Copying sources...
-Building extendmap...
- ...
-Building example...
- ...
+sourceknight build
 ```
 
-The `build` command, when run from your project directory, will automatically perform all the steps needed to build your plugins, and the `.smx` files will be output there (i.e., to the working directory). If you want to put the compiled plugins somewhere else, you can pass the `-o` option:
+**What happens behind the scenes:**
 
-```
-example$ sourceknight build -o compiled
-```
+1. **`update`**: Downloads SourceMod (providing `spcomp`), `sourcecolors`, and `autoexecconfig` into `.sourceknight/cache`.
+2. **`unpack`**: Stages all dependencies into an isolated virtual build environment at `.sourceknight/build/addons/sourcemod/`.
+3. **`compile`**: Runs the resolved `spcomp` against `my_plugin.sp` and outputs `my_plugin.smx` directly into your workspace.
 
-If you don't want to run `sourceknight` from your project directory every time, you can specify `-p` to provide the path to it:
+---
+
+## Common SourceMod Plugin Scenarios
+
+### Specifying an Output Folder for `.smx` Files
+
+To output compiled `.smx` files into a `compiled/` or `plugins/` directory:
 
 ```bash
-sourceknight$ sourceknight -p example build
+sourceknight build -o compiled/
 ```
 
-The `-p` option is applicable to every `sourceknight` subcommand, and must be specified before it.
+Or configure it permanently in `sourceknight.yaml`:
 
-Behind the scenes, `build` is running three independent steps: `update`, `unpack`, and `compile`. The `update` step downloads and caches dependencies, `unpack` extracts them into the build directory, and `compile` compiles the plugins.
+```yaml
+project:
+  sourceknight: 0.5
+  name: my-plugin
+  root: /plugins
+  output: /build/plugins
+  targets:
+    - my_plugin
+```
 
-There is also a `status` command, which provides useful information about the version of dependencies which are cached and unpacked:
+### Building Multiple Plugin Targets
+
+If your project compiles multiple `.sp` files (e.g. modular plugin architecture):
+
+```yaml
+targets:
+  - my_core_plugin
+  - my_admin_module
+  - my_chat_module
+```
+
+You can build all targets at once with `sourceknight build`, or build a single target with:
 
 ```bash
-example$ sourceknight status
-sourcemod
- Cached version: 1.10.0-git6503
- Unpacked version: 1.10.0-git6503
-sourcecolors
- Cached version: d7b112be7c2a88a3d7b5b124017c102ce320dee3
- Unpacked version: d7b112be7c2a88a3d7b5b124017c102ce320dee3
-extend-map
- Cached version: 5c3d88be409f9c826bf7a84f319c826eaef5ceb5
- Unpacked version: 5c3d88be409f9c826bf7a84f319c826eaef5ceb5
+sourceknight compile my_admin_module
 ```
 
-If you want to learn more, all of the `sourceknight` subcommands have additional information available with the `-h` flag:
+### Manual Unpack Mapping
+
+While Sourceknight automatically detects standard SourceMod directories (`scripting/`, `include/`, `plugins/`, etc.), you can specify custom extraction paths if an external repository uses a non-standard layout:
+
+```yaml
+dependencies:
+  - name: nonstandard-lib
+    type: git
+    repo: https://github.com/example/nonstandard-lib
+    unpack:
+      - source: /src/headers
+        dest: /addons/sourcemod/scripting/include
+      - source: /gamedata/custom.txt
+        dest: /addons/sourcemod/gamedata/custom.txt
+```
+
+---
+
+## Dependency Driver Reference
+
+| Driver (`type`) | Purpose                                                           | Required Fields                                      |
+| --------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
+| `smdrop`        | AlliedModders SourceMod builds (resolves `spcomp` + core headers) | `version` (e.g. `1.12.x`, `1.11.x`)                  |
+| `git`           | Clones a Git repository                                           | `repo` (URL), optional `version` (branch/tag/commit) |
+| `zip`           | Remote `.zip` archive (GitHub releases, AlliedMods attachments)   | `location` (URL), optional `version`                 |
+| `tar`           | Remote `.tar` / `.tar.gz` archive                                 | `location` (URL), optional `version`                 |
+| `file`          | Local file or archive within project directory                    | `location` (relative path)                           |
+
+---
+
+## CI/CD: Automated Multi-Version Plugin Testing
+
+With Sourceknight's dynamic version override support, you can test and compile your SourceMod plugins across multiple SourceMod versions (e.g., 1.11 and 1.12) in GitHub Actions with zero boilerplate.
+
+### Example GitHub Actions Workflow (`.github/workflows/build.yml`)
+
+```yaml
+name: Build SourceMod Plugins
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sourcemod: ["1.11.x", "1.12.x"]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Sourceknight
+        uses: tmick0/sourceknight@master
+        with:
+          python-version: "3.12"
+          cache: "true"
+
+      - name: Build Plugins for SourceMod ${{ matrix.sourcemod }}
+        run: |
+          sourceknight build --override-dep sourcemod=${{ matrix.sourcemod }} -o dist/${{ matrix.sourcemod }}
+
+      - name: Upload Compiled Plugins (.smx)
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins-sm-${{ matrix.sourcemod }}
+          path: dist/${{ matrix.sourcemod }}/*.smx
+```
+
+---
+
+## CLI Command Reference
+
+| Command                         | Description                                                            |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `sourceknight build`            | Runs the complete workflow: `update` &rarr; `unpack` &rarr; `compile`. |
+| `sourceknight update`           | Fetches, downloads, and caches all declared dependencies.              |
+| `sourceknight unpack`           | Extracts dependencies from cache into `.sourceknight/build`.           |
+| `sourceknight compile [target]` | Invokes `spcomp` to compile all targets or a specific target.          |
+| `sourceknight status`           | Shows cached vs unpacked version status for all dependencies.          |
+
+### Global CLI Flags
+
+- `-p, --path <path>`: Path to project directory containing `sourceknight.yaml` (default: current directory).
+- `-o, --output <path>`: Directory to place compiled `.smx` files.
+- `--override-dep <name>=<version>`: Override dependency versions at runtime (e.g., `--override-dep sourcemod=1.11.x`).
+- `-clean` / `-c` (for `unpack`): Rebuild the `.sourceknight/build` staging directory from scratch.
+
+---
+
+## State & Workspace Cleaning
+
+Sourceknight keeps all downloaded caches and temporary staging files inside `.sourceknight/` in your project root:
+
+- `.sourceknight/cache/`: Downloaded archives and cloned repositories.
+- `.sourceknight/build/`: Virtual SourceMod staging directory containing merged headers and include files.
+- `.sourceknight/state.yaml`: State tracking for incremental builds.
+
+To force a clean slate, delete `.sourceknight/`:
 
 ```bash
-$ sourceknight unpack -h
-usage: sourceknight unpack [-h] [-a,--all] [-c,--clean]
-
-optional arguments:
-  -h, --help  show this help message and exit
-  -a,--all    Force unpacking all dependencies, even if they have not been updated
-  -c,--clean  Force creating a new unpack directory, even if one already exists
+rm -rf .sourceknight
 ```
 
-## sourceknight state
+---
 
-`sourceknight` will create a directory called `.sourceknight` in your project directory. All the cached dependencies and the build directory are located within it. If you want to clean up after yourself, or if something goes horribly wrong, delete `.sourceknight`.
+## License
 
-## License 
-
-This project is made available under the terms of the [MIT license](LICENSE).
+Sourceknight is licensed under the [MIT License](LICENSE).
