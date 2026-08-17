@@ -1,46 +1,55 @@
 import argparse
-import sys
 import logging
+import sys
 
-from sourceknight import Update, Status, unpack, CompileManager, Build, context
-from .errors import SkError
+from sourceknight import Context, SkError
+from sourceknight.commands.build import Build
+from sourceknight.commands.compile import Compile
+from sourceknight.commands.status import Status
+from sourceknight.commands.unpack import Unpack
+from sourceknight.commands.update import Update
 
-def main():
+
+def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     parser = argparse.ArgumentParser("sourceknight", description="simple dependency manager for sourcemod projects")
     parser.add_argument('-p,--path', dest="path",
                         help="Path to the root of your project (directory containing sourceknight.yaml) - defaults to current directory",
                         default=".")
+    parser.add_argument('--override-dep', action='append', default=[],
+                        help="Override dependency version (e.g. --override-dep sourcemod=1.12.x)")
 
     subparsers = parser.add_subparsers(dest='command')
     subparsers.required = True
 
-    Update.add_args(Update.install(subparsers))
-    Status.add_args(Status.install(subparsers))
-    unpack.add_args(unpack.install(subparsers))
-    CompileManager.add_args(CompileManager.install(subparsers))
-    Build.add_args(Build.install(subparsers))
+    # A list of all available command classes
+    commands = [Update, Status, Unpack, Compile, Build]
+
+    # Dynamically create a map from command name to class
+    command_map = {cmd.name: cmd for cmd in commands}
+
+    # Install all commands
+    for command in commands:
+        command.install(subparsers)
 
     args = parser.parse_args()
-
-    command_map = {
-        'update': Update,
-        'status': Status,
-        'unpack': unpack,
-        'compile': CompileManager,
-        'build': Build
-    }
 
     try:
         try:
             command = command_map[args.command]
         except KeyError:
-            raise SkError("Unknown command {:s}".format(args.command))
-        with context(args.path) as ctx:
+            raise SkError(f"Unknown command {args.command}") from None
+        with Context(args.path, args=args) as ctx:
             command(ctx)(args)
     except SkError as e:
+
         logging.error(e)
         sys.exit(1)
 
     sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
+
