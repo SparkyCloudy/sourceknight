@@ -28,7 +28,8 @@ dev = [
 
 
 [project.urls]
-Homepage = "https://github.com/tmick0/sourceknight"
+Homepage = "https://github.com/SparkyCloudy/sourceknight"
+
 
 [project.scripts]
 sourceknight = "sourceknight.main:main"

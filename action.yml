@@ -54,5 +54,5 @@ runs:
         elif [ -f "${{ github.action_path }}/pyproject.toml" ]; then
           pip install "${{ github.action_path }}"
         else
-          pip install sourceknight
+          pip install git+https://github.com/SparkyCloudy/sourceknight.git
         fi

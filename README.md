@@ -31,13 +31,22 @@
 
 ## Installation
 
-Install `sourceknight` via `pip`:
+Clone the repository and install it locally using `pip`:
 
 ```bash
-pip install sourceknight
+git clone https://github.com/SparkyCloudy/sourceknight.git
+cd sourceknight
+pip install .
+```
+
+Or install directly via Git with `pip`:
+
+```bash
+pip install git+https://github.com/SparkyCloudy/sourceknight.git
 ```
 
 _Requires Python >= 3.12._
+
 
 ---
 
@@ -218,10 +227,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Sourceknight
-        uses: tmick0/sourceknight@master
+        uses: SparkyCloudy/sourceknight@master
         with:
           python-version: "3.12"
           cache: "true"
+
 
       - name: Build Plugins for SourceMod ${{ matrix.sourcemod }}
         run: |
