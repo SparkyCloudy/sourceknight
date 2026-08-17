@@ -51,6 +51,12 @@ class Compile(Command):
         output = args.output
         if output is None:
             output = self._context.defs.get('output', '.')
+            if output.startswith('/'):
+                output = output[1:]
+            abs_output = os.path.abspath(os.path.join(self._context.path, output))
+        else:
+            abs_output = os.path.abspath(output)
+
         buildroot = os.path.join(self._context.path, '.sourceknight', 'build')
         workdir_path = os.path.join(buildroot, workdir)
         compiler_path = os.path.abspath(os.path.join(buildroot, compiler))
@@ -83,8 +89,13 @@ class Compile(Command):
             raise SkError(f"Compiler executable not found at {compiler_path}")
 
         compiler_path = resolved_compiler
-        outdir = os.path.relpath(os.path.abspath(output), workdir_path)
 
+        if platform.system() != 'Windows':
+            try:
+                st = os.stat(compiler_path)
+                os.chmod(compiler_path, st.st_mode | 0o111)
+            except OSError:
+                pass
 
         if root is not None:
             logging.info("Copying sources...")
@@ -96,12 +107,13 @@ class Compile(Command):
                             ignore=copy_filter)
 
         with cd(workdir_path):
-            ensure_path_exists(outdir)
+            ensure_path_exists(abs_output)
             for t in targets:
                 infile = f'{t}.sp'
-                outfile = os.path.join(outdir, f'{t}.smx')
+                outfile = os.path.join(abs_output, f'{t}.smx')
                 logging.info("Building %s...", t)
                 result = subprocess.run([compiler_path, infile, f"-o{outfile}"])
                 if result.returncode != 0:
                     raise SkError(f"Compilation failed for target '{t}' with exit code {result.returncode}")
+
 
