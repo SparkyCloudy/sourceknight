@@ -1,11 +1,11 @@
 import argparse
+import json
 import logging
 import os
 import platform
 import shutil
 import subprocess
 import sys
-import json
 
 from sourceknight import SkError
 from sourceknight.utils import cd, ensure_path_exists
@@ -123,14 +123,14 @@ class Compile(Command):
                 infile = f'{t}.sp'
                 outfile = os.path.join(abs_output, f'{t}.smx')
                 logging.info("Building %s...", t)
-                
+
                 result = subprocess.run([compiler_path, infile, f"-o{outfile}"], capture_output=True, text=True, errors='replace')
-                
+
                 if result.stdout:
                     sys.stdout.write(result.stdout)
                 if result.stderr:
                     sys.stderr.write(result.stderr)
-                
+
                 success = result.returncode == 0
                 results.append({
                     "target": t,
@@ -145,10 +145,10 @@ class Compile(Command):
                     logging.error(f"Compilation failed for target '{t}' with exit code {result.returncode}")
                     if args.fail_fast:
                         break
-            
+
             success_count = sum(1 for r in results if r["success"])
             fail_count = len(results) - success_count
-            
+
             if len(targets) > 1 or args.report:
                 logging.info(f"Compilation summary: {success_count} succeeded, {fail_count} failed out of {len(results)} total target(s).")
 
