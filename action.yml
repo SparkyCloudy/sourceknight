@@ -36,12 +36,16 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Cache Sourceknight dependencies
+    - name: Cache dependencies and pip packages
       if: ${{ inputs.cache == 'true' }}
       id: cache
       uses: actions/cache@v4
       with:
-        path: ${{ inputs.project-path }}/.sourceknight/cache
+        path: |
+          ${{ inputs.project-path }}/.sourceknight/cache
+          ~/.cache/pip
+          ~/AppData/Local/pip/Cache
+          ~/Library/Caches/pip
         key: sourceknight-${{ runner.os }}-${{ hashFiles(format('{0}/sourceknight.yaml', inputs.project-path)) }}
         restore-keys: |
           sourceknight-${{ runner.os }}-
@@ -50,9 +54,9 @@ runs:
       shell: bash
       run: |
         if [ -n "${{ inputs.sourceknight-version }}" ]; then
-          pip install "sourceknight==${{ inputs.sourceknight-version }}"
+          pip install --prefer-binary "sourceknight==${{ inputs.sourceknight-version }}"
         elif [ -f "${{ github.action_path }}/pyproject.toml" ]; then
-          pip install "${{ github.action_path }}"
+          pip install --prefer-binary "${{ github.action_path }}"
         else
-          pip install git+https://github.com/SparkyCloudy/sourceknight.git
+          pip install --prefer-binary git+https://github.com/SparkyCloudy/sourceknight.git
         fi
