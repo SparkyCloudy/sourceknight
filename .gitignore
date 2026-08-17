@@ -9,6 +9,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+.build/
 develop-eggs/
 dist/
 downloads/
@@ -139,3 +140,8 @@ cython_debug/
 
 # PyCharm
 .idea/
+
+# Sourceknight workspace
+.sourceknight/
+**/.sourceknight/
+

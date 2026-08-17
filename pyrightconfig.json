@@ -1,0 +1,15 @@
+{
+  "include": [
+    "sourceknight",
+    "tests"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "build",
+    "dist",
+    "*.egg-info",
+    "**/.sourceknight"
+  ],
+  "pythonVersion": "3.12"
+}
