@@ -17,7 +17,8 @@ class FileDriver(basedriver):
         super().__init__(ctx, model)
 
     def update(self, mgr: FileManager) -> None:
-        src_path = os.path.normpath(os.path.join(self.ctx.path, str(self.model.params.get('path', ''))))
+        rel_path = str(self.model.params.get('path') or self.model.params.get('location') or '')
+        src_path = os.path.normpath(os.path.join(self.ctx.path, rel_path))
         if not os.path.exists(src_path):
             raise SkError(f"Local file dependency not found: {src_path}")
 
@@ -26,5 +27,13 @@ class FileDriver(basedriver):
         })
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
-        with FileManager(self.ctx, 'cache') as tmp:
-            extract_and_copy(self, locations, mgr, tmp)
+        name = str(self.model.name or "")
+        state = self.ctx.state.dependencies.get(name, {})
+        loc = state.get('location', self.model.params.get('path', self.model.params.get('location', '')))
+        src_path = os.path.normpath(os.path.join(self.ctx.path, str(loc)))
+
+        class _LocalPathWrapper:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+        extract_and_copy(self, locations, mgr, _LocalPathWrapper(src_path))  # type: ignore[arg-type]

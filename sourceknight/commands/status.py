@@ -12,7 +12,7 @@ class Status(Command):
 
     @classmethod
     def add_args(cls, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument('-v,--verbose', dest='verbose', action='store_true', help="Print additional information")
+        parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help="Print additional information")
 
     def __call__(self, args: argparse.Namespace) -> None:
         for dep in map(Dependency.from_yaml, self._context.defs.get('dependencies', [])):

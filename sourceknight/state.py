@@ -1,3 +1,4 @@
+import threading
 from typing import Any
 
 
@@ -7,6 +8,7 @@ class State:
     def __init__(self) -> None:
         self._dict: dict[str, dict[str, Any]] = {'dependencies': {}, 'build': {}}
         self._clean: bool = True
+        self._lock = threading.Lock()
 
     def clean(self) -> bool:
         """Returns True if the state has not been modified since last save."""
@@ -22,8 +24,9 @@ class State:
 
     def clear_build_state(self) -> None:
         """Clears the unpacked build state."""
-        self._dict['build'] = {}
-        self._clean = False
+        with self._lock:
+            self._dict['build'] = {}
+            self._clean = False
 
     def __getattr__(self, key: str) -> Any:
         try:
@@ -41,8 +44,9 @@ class State:
                 else:
                     dest[k] = v
 
-        merge(self._dict, kwargs)
-        self._clean = False
+        with self._lock:
+            merge(self._dict, kwargs)
+            self._clean = False
 
     def serialize(self) -> dict[str, dict[str, Any]]:
         """Returns serializable dictionary representing state."""

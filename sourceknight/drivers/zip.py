@@ -39,7 +39,10 @@ class ZipDriver(basedriver):
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
         with FileManager(self.ctx, uuid.uuid4().hex, True) as tmp:
-            zip_path = os.path.join(self.ctx.path, str(self.model.params['location']))
+            name = str(self.model.name or "")
+            state = self.ctx.state.dependencies.get(name, {})
+            loc = state.get('location', self.model.params.get('location', ''))
+            zip_path = os.path.join(self.ctx.path, str(loc))
             tmp_path = tmp.path
 
             if platform.system() == 'Windows':

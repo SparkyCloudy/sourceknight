@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master, rework]
+    branches: ['**']
   pull_request:
     branches: [main, master, rework]
 
@@ -26,7 +26,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Package & Dev Dependencies
         run: |

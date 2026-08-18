@@ -5,6 +5,7 @@ import os
 import pathlib
 import platform
 import shutil
+import threading
 import uuid
 from collections.abc import Callable
 from importlib.metadata import version
@@ -85,6 +86,7 @@ class FileManager:
         self._sess = requests.session()
         self._sess.mount("file://", LocalFileAdapter())
         self._tmpfiles: list[str] = []
+        self._lock = threading.Lock()
         self.path: str = str(os.path.join(self._ctx.path, '.sourceknight', directory))
         self._entire_dir: bool = entire_directory
         mimetypes.init()
@@ -94,9 +96,10 @@ class FileManager:
         return self
 
     def __exit__(self, *exc: object) -> None:
-        for f in self._tmpfiles:
-            with contextlib.suppress(OSError):
-                os.unlink(f)
+        with self._lock:
+            for f in self._tmpfiles:
+                with contextlib.suppress(OSError):
+                    os.unlink(f)
         if self._entire_dir:
             shutil.rmtree(self.path, ignore_errors=True)
 
@@ -106,8 +109,9 @@ class FileManager:
 
     def release(self, file: str) -> None:
         """Removes a file from temporary tracking."""
-        if file in self._tmpfiles:
-            self._tmpfiles.remove(file)
+        with self._lock:
+            if file in self._tmpfiles:
+                self._tmpfiles.remove(file)
 
     def acquire(self, url: str) -> str:
         """Downloads or fetches a file from URL and saves it to a temp path."""
@@ -127,7 +131,8 @@ class FileManager:
             ext = os.path.splitext(urlparse(url).path)[1]
 
         tmp = os.path.join(self.path, f'{uuid.uuid4().hex}{ext}')
-        self._tmpfiles.append(tmp)
+        with self._lock:
+            self._tmpfiles.append(tmp)
 
         with open(tmp, 'wb') as fh:
             fh.write(req.content)
@@ -203,7 +208,7 @@ def check_version(defs: dict[str, Any]) -> None:
         cur_ver_str = version('sourceknight')
     except Exception:
         # Fallback when running directly from source tree
-        cur_ver_str = "0.5"
+        cur_ver_str = "0.6"
     cur = SkVersion(cur_ver_str)
     err = RuntimeError("this version of sourceknight is incompatible with this manifest")
     compat = cur.compatibility(ver)
@@ -230,7 +235,14 @@ def resolve_heuristic_locations(base_path: str) -> list[dict[str, str]]:
         locations.append({'source': '/addons', 'dest': '/addons'})
         return locations
 
-    # 2. Check standard SourceMod subdirectories at root
+    # 2. Check for nested 'game/addons' or 'addons' in immediate subdirectories
+    for item in os.listdir(base_path):
+        sub_addons = os.path.join(base_path, item, 'addons')
+        if os.path.isdir(sub_addons):
+            locations.append({'source': f'/{item}/addons', 'dest': '/addons'})
+            return locations
+
+    # 3. Check standard SourceMod subdirectories at root
     mappings = {
         'scripting': '/addons/sourcemod/scripting',
         'include': '/addons/sourcemod/scripting/include',
@@ -245,7 +257,7 @@ def resolve_heuristic_locations(base_path: str) -> list[dict[str, str]]:
         if os.path.isdir(os.path.join(base_path, folder)):
             locations.append({'source': f'/{folder}', 'dest': dest})
 
-    # 3. If there are loose .inc files in the root
+    # 4. If there are loose .inc files in the root
     if os.path.isdir(base_path):
         has_loose_inc = any(f.endswith('.inc') and os.path.isfile(os.path.join(base_path, f)) for f in os.listdir(base_path))
         if has_loose_inc and not any(loc['dest'] == '/addons/sourcemod/scripting/include' for loc in locations):
@@ -263,7 +275,10 @@ def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileMana
     # Apply heuristic auto-unpacking if no unpack locations were explicitly provided
     if not locations:
         if isinstance(drvcls, GitDriver):
-            base_search = os.path.normpath(os.path.join(drvcls.ctx.path, str(drvcls.model.params.get('location', ''))))
+            state = getattr(drvcls.ctx, "state", None)
+            dep_state = state.dependencies.get(drvcls.model.name, {}) if state else {}
+            loc = dep_state.get('location', drvcls.model.params.get('location', f".sourceknight/cache/{drvcls.model.name}"))
+            base_search = os.path.normpath(os.path.join(drvcls.ctx.path, str(loc)))
         else:
             base_search = tmp.path
         locations = resolve_heuristic_locations(base_search)
@@ -279,7 +294,10 @@ def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileMana
         dest_entry = dest_entry.removeprefix('/')
 
         if isinstance(drvcls, GitDriver):
-            src = os.path.normpath(os.path.join(drvcls.ctx.path, str(drvcls.model.params.get('location', '')), src_entry))
+            state = getattr(drvcls.ctx, "state", None)
+            dep_state = state.dependencies.get(drvcls.model.name, {}) if state else {}
+            loc = dep_state.get('location', drvcls.model.params.get('location', f".sourceknight/cache/{drvcls.model.name}"))
+            src = os.path.normpath(os.path.join(drvcls.ctx.path, str(loc), src_entry))
         else:
             src = os.path.normpath(os.path.join(tmp.path, src_entry))
         dst = os.path.normpath(os.path.join(mgr.path, dest_entry))

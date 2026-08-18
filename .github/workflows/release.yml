@@ -2,12 +2,16 @@ name: Release
 
 on:
   push:
+    branches: [main, master]
     tags:
-      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+*'
+      - '[0-9]+.[0-9]+*'
+      - 'v[0-9]+*'
   workflow_dispatch:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build-and-release:
@@ -25,31 +29,59 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Detect Version & Tag Status
+        id: version_check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+            echo "Workflow manually triggered for version $TAG_VER."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_VER" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_VER="${GITHUB_REF_NAME}"
+            echo "Release triggered by tag $TAG_VER."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_VER" >> "$GITHUB_OUTPUT"
+          else
+            TAG_VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+            if git rev-parse "$TAG_VER" >/dev/null 2>&1 || git rev-parse "v$TAG_VER" >/dev/null 2>&1; then
+              echo "Version $TAG_VER is already tagged. Skipping automated release."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "New version $TAG_VER detected on branch. Triggering automated release."
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+              echo "tag_name=$TAG_VER" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Install Build Tools
+        if: steps.version_check.outputs.should_release == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install build twine
 
       - name: Build Source Distribution & Wheels
+        if: steps.version_check.outputs.should_release == 'true'
         run: python -m build
 
       - name: Validate Package Metadata
+        if: steps.version_check.outputs.should_release == 'true'
         run: twine check dist/*
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release & Tag
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.version_check.outputs.should_release == 'true'
         with:
+          tag_name: ${{ steps.version_check.outputs.tag_name }}
+          name: Release ${{ steps.version_check.outputs.tag_name }}
           files: dist/*
           generate_release_notes: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        if: startsWith(github.ref, 'refs/tags/') && env.HAVE_PYPI_TOKEN != ''
+        if: steps.version_check.outputs.should_release == 'true' && env.HAVE_PYPI_TOKEN != ''
         env:
           HAVE_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
-
-

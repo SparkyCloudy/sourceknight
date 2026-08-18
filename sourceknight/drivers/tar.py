@@ -37,7 +37,10 @@ class TarDriver(basedriver):
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
         with FileManager(self.ctx, uuid.uuid4().hex, True) as tmp:
-            archive_path = os.path.join(self.ctx.path, str(self.model.params['location']))
+            name = str(self.model.name or "")
+            state = self.ctx.state.dependencies.get(name, {})
+            loc = state.get('location', self.model.params.get('location', ''))
+            archive_path = os.path.join(self.ctx.path, str(loc))
             with tarfile.open(archive_path) as tar:
                 logging.info(" Unpacking archive...")
                 tar_safe_extract(tar, tmp.path)
