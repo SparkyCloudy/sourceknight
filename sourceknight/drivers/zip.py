@@ -1,13 +1,9 @@
 import contextlib
 import logging
 import os
-import platform
-import uuid
-import zipfile
 from typing import TYPE_CHECKING
 
-from ..errors import SkError
-from ..utils import FileManager, extract_and_copy
+from ..utils import FileManager, direct_unpack_zip
 from .base import basedriver
 
 if TYPE_CHECKING:
@@ -29,7 +25,6 @@ class ZipDriver(basedriver):
                 with contextlib.suppress(OSError):
                     os.unlink(full_path)
 
-
     def update(self, mgr: FileManager) -> None:
         path = mgr.acquire(self.model.params['location'])
         mgr.release(path)
@@ -38,26 +33,15 @@ class ZipDriver(basedriver):
         })
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
-        with FileManager(self.ctx, uuid.uuid4().hex, True) as tmp:
-            name = str(self.model.name or "")
-            state = self.ctx.state.dependencies.get(name, {})
-            loc = state.get('location', self.model.params.get('location', ''))
-            zip_path = os.path.join(self.ctx.path, str(loc))
-            tmp_path = tmp.path
+        logging.info(" Unpacking %s...", self.model.name)
+        name = str(self.model.name or "")
+        state = self.ctx.state.dependencies.get(name, {})
+        loc = state.get('location', self.model.params.get('location', ''))
+        archive_path = os.path.join(self.ctx.path, str(loc))
 
-            if platform.system() == 'Windows':
-                tmp_path = tmp_path.replace('/', '\\')
+        direct_unpack_zip(archive_path, mgr.path, locations)
 
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                logging.info(" Unpacking archive...")
-
-                tmp_abs = os.path.abspath(tmp_path)
-                for member in zip_ref.namelist():
-                    member_path = os.path.abspath(os.path.join(tmp_path, member))
-                    if not member_path.startswith(tmp_abs):
-                        raise SkError("Attempted Path Traversal in Zip File")
-
-                zip_ref.extractall(tmp_path)
-
-            extract_and_copy(self, locations, mgr, tmp)
+        self.ctx.state.update(build={
+            self.model.name: self.model.state(driver='zip')
+        })
 

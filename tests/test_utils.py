@@ -7,12 +7,15 @@ from unittest.mock import MagicMock, patch
 
 from sourceknight.context import Context
 from sourceknight.dependencies import Dependency
+from sourceknight.errors import SkError
 from sourceknight.utils import (
     FileManager,
     LocalFileAdapter,
     SkVersion,
     adjust_sourcemod_platform,
     cd,
+    direct_unpack_tar,
+    direct_unpack_zip,
     ensure_path_exists,
     extract_and_copy,
     once,
@@ -225,6 +228,74 @@ class TestUtilsFunctions(unittest.TestCase):
 
                 target_inc = os.path.join(bmgr.path, "addons", "sourcemod", "scripting", "include", "test.inc")
                 self.assertTrue(os.path.exists(target_inc))
+
+    def test_resolve_heuristic_locations_from_path_list(self):
+        # 1. Top level addons
+        self.assertEqual(
+            resolve_heuristic_locations(["addons/sourcemod/scripting/spcomp"]),
+            [{"source": "/addons", "dest": "/addons"}]
+        )
+        # 2. Nested game/addons
+        self.assertEqual(
+            resolve_heuristic_locations(["game/addons/sourcemod/plugins/test.smx"]),
+            [{"source": "/game/addons", "dest": "/addons"}]
+        )
+        # 3. Standard subdirectories
+        locs = resolve_heuristic_locations(["scripting/include/foo.inc", "plugins/foo.smx"])
+        dest_list = [loc_entry["dest"] for loc_entry in locs]
+        self.assertIn("/addons/sourcemod/scripting", dest_list)
+        self.assertIn("/addons/sourcemod/plugins", dest_list)
+        # 4. Loose inc
+        self.assertEqual(
+            resolve_heuristic_locations(["header.inc"]),
+            [{"source": "/header.inc", "dest": "/addons/sourcemod/scripting/include/header.inc"}]
+        )
+
+    def test_direct_unpack_tar_and_traversal(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tar_path = os.path.join(tmpdir, "archive.tar.gz")
+            with tarfile.open(tar_path, "w:gz") as tf:
+                content = b"// tar content"
+                ti = tarfile.TarInfo("addons/sourcemod/scripting/include/mylib.inc")
+                ti.size = len(content)
+                tf.addfile(ti, io.BytesIO(content))
+
+            dest_dir = os.path.join(tmpdir, "dest_build")
+            os.makedirs(dest_dir, exist_ok=True)
+            direct_unpack_tar(tar_path, dest_dir, [{"source": "addons", "dest": "addons"}])
+            extracted_file = os.path.join(dest_dir, "addons", "sourcemod", "scripting", "include", "mylib.inc")
+            self.assertTrue(os.path.exists(extracted_file))
+
+            # Test path traversal in direct tar unpack
+            bad_tar_path = os.path.join(tmpdir, "bad.tar.gz")
+            with tarfile.open(bad_tar_path, "w:gz") as tf:
+                ti_bad = tarfile.TarInfo("../../evil.sh")
+                ti_bad.size = len(b"evil")
+                tf.addfile(ti_bad, io.BytesIO(b"evil"))
+
+            with self.assertRaises(SkError):
+                direct_unpack_tar(bad_tar_path, dest_dir, [{"source": "", "dest": ""}])
+
+    def test_direct_unpack_zip_and_traversal(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, "archive.zip")
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr("addons/sourcemod/scripting/include/ziplib.inc", "// zip content")
+
+            dest_dir = os.path.join(tmpdir, "dest_build")
+            os.makedirs(dest_dir, exist_ok=True)
+            direct_unpack_zip(zip_path, dest_dir, [{"source": "addons", "dest": "addons"}])
+            extracted_file = os.path.join(dest_dir, "addons", "sourcemod", "scripting", "include", "ziplib.inc")
+            self.assertTrue(os.path.exists(extracted_file))
+
+            # Test path traversal in direct zip unpack
+            bad_zip_path = os.path.join(tmpdir, "bad.zip")
+            with zipfile.ZipFile(bad_zip_path, "w") as zf:
+                zf.writestr("../../evil.sh", "evil")
+
+            with self.assertRaises(SkError):
+                direct_unpack_zip(bad_zip_path, dest_dir, [{"source": "", "dest": ""}])
 
 
 if __name__ == "__main__":

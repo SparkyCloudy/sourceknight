@@ -45,15 +45,36 @@ def do_unpack(context: "Context", force: bool = False, clean: bool = False) -> N
         context.state.clear_build_state()
 
     dmgr = DependencyManager(context)
+    deps: list[dict[str, Any]] = [
+        dep for dep in context.defs.get("dependencies", [])
+        if dep.get("name") and dep.get("name") in context.state.dependencies
+    ]
+
+    if not deps:
+        return
+
     with FileManager(context, "build", True) as fmgr:
-        for dep in context.defs.get("dependencies", []):
-            dep_name = dep.get("name")
-            if not dep_name or dep_name not in context.state.dependencies:
-                continue
-            dmgr.unpack(
-                context.state.dependencies[dep_name],
-                dep.get("unpack", []),
-                fmgr,
-                force,
-            )
+        if len(deps) > 1:
+            max_workers = min(8, len(deps))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(
+                        dmgr.unpack,
+                        context.state.dependencies[dep["name"]],
+                        dep.get("unpack", []),
+                        fmgr,
+                        force,
+                    )
+                    for dep in deps
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
+        else:
+            for dep in deps:
+                dmgr.unpack(
+                    context.state.dependencies[dep["name"]],
+                    dep.get("unpack", []),
+                    fmgr,
+                    force,
+                )
         fmgr.release_dir()

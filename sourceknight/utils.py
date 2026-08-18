@@ -5,8 +5,10 @@ import os
 import pathlib
 import platform
 import shutil
+import tarfile
 import threading
 import uuid
+import zipfile
 from collections.abc import Callable
 from importlib.metadata import version
 from typing import Any, Self
@@ -114,28 +116,28 @@ class FileManager:
                 self._tmpfiles.remove(file)
 
     def acquire(self, url: str) -> str:
-        """Downloads or fetches a file from URL and saves it to a temp path."""
+        """Downloads or fetches a file from URL and saves it to a temp path using streaming."""
         logging.info(" Downloading %s...", url)
-        req = self._sess.get(url)
-        req.raise_for_status()
+        with self._sess.get(url, stream=True) as req:
+            req.raise_for_status()
 
-        ext: str | None = None
-        content_type = req.headers.get('content-type')
-        if content_type:
-            ext = mimetypes.guess_extension(content_type)
-        if ext is None:
-            guessed_type = mimetypes.guess_type(url)[0]
-            if guessed_type:
-                ext = mimetypes.guess_extension(guessed_type)
-        if ext is None:
-            ext = os.path.splitext(urlparse(url).path)[1]
+            ext: str | None = None
+            content_type = req.headers.get('content-type')
+            if content_type:
+                ext = mimetypes.guess_extension(content_type)
+            if ext is None:
+                guessed_type = mimetypes.guess_type(url)[0]
+                if guessed_type:
+                    ext = mimetypes.guess_extension(guessed_type)
+            if ext is None:
+                ext = os.path.splitext(urlparse(url).path)[1]
 
-        tmp = os.path.join(self.path, f'{uuid.uuid4().hex}{ext}')
-        with self._lock:
-            self._tmpfiles.append(tmp)
+            tmp = os.path.join(self.path, f'{uuid.uuid4().hex}{ext}')
+            with self._lock:
+                self._tmpfiles.append(tmp)
 
-        with open(tmp, 'wb') as fh:
-            fh.write(req.content)
+            with open(tmp, 'wb') as fh:
+                shutil.copyfileobj(req.raw, fh, length=64 * 1024)
 
         return tmp
 
@@ -208,7 +210,7 @@ def check_version(defs: dict[str, Any]) -> None:
         cur_ver_str = version('sourceknight')
     except Exception:
         # Fallback when running directly from source tree
-        cur_ver_str = "0.6.1"
+        cur_ver_str = "0.6.2"
     cur = SkVersion(cur_ver_str)
     err = RuntimeError("this version of sourceknight is incompatible with this manifest")
     compat = cur.compatibility(ver)
@@ -220,13 +222,54 @@ def check_version(defs: dict[str, Any]) -> None:
         raise err
 
 
-def resolve_heuristic_locations(base_path: str) -> list[dict[str, str]]:
+def resolve_heuristic_locations(base: str | list[str]) -> list[dict[str, str]]:
     """
-    Scans base_path for standard SourceMod directory structures and
-    generates automatic unpack location mappings.
+    Scans a base path (directory on disk) or a list of entry paths (from archive)
+    for standard SourceMod directory structures and generates automatic unpack
+    location mappings.
     """
     locations: list[dict[str, str]] = []
 
+    if isinstance(base, list):
+        norm_paths = [p.replace('\\', '/').strip().lstrip('./').lstrip('/') for p in base]
+
+        # 1. Top level 'addons' folder
+        if any(p == 'addons' or p.startswith('addons/') for p in norm_paths):
+            locations.append({'source': '/addons', 'dest': '/addons'})
+            return locations
+
+        # 2. Check for '<item>/addons' (e.g. 'game/addons')
+        for p in norm_paths:
+            parts = p.split('/')
+            if len(parts) >= 2 and parts[1] == 'addons':
+                item = parts[0]
+                locations.append({'source': f'/{item}/addons', 'dest': '/addons'})
+                return locations
+
+        # 3. Check standard SourceMod subdirectories at root
+        mappings = {
+            'scripting': '/addons/sourcemod/scripting',
+            'include': '/addons/sourcemod/scripting/include',
+            'plugins': '/addons/sourcemod/plugins',
+            'gamedata': '/addons/sourcemod/gamedata',
+            'translations': '/addons/sourcemod/translations',
+            'extensions': '/addons/sourcemod/extensions',
+            'configs': '/addons/sourcemod/configs',
+        }
+        for folder, dest in mappings.items():
+            if any(p == folder or p.startswith(f'{folder}/') for p in norm_paths):
+                locations.append({'source': f'/{folder}', 'dest': dest})
+
+        # 4. Check loose .inc files at root
+        has_loose_inc = any('/' not in p and p.endswith('.inc') for p in norm_paths)
+        if has_loose_inc and not any(loc['dest'] == '/addons/sourcemod/scripting/include' for loc in locations):
+            for p in norm_paths:
+                if '/' not in p and p.endswith('.inc'):
+                    locations.append({'source': f'/{p}', 'dest': f'/addons/sourcemod/scripting/include/{p}'})
+
+        return locations
+
+    base_path = base
     if not os.path.exists(base_path):
         return locations
 
@@ -268,7 +311,128 @@ def resolve_heuristic_locations(base_path: str) -> list[dict[str, str]]:
     return locations
 
 
-def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileManager, tmp: FileManager) -> None:
+def _map_entry_target(entry_name: str, src_prefix: str, dest_prefix: str) -> str | None:
+    """Maps an entry name from an archive to its destination relative path if it matches source prefix."""
+    entry_clean = entry_name.replace('\\', '/').strip()
+    if entry_clean.startswith('/'):
+        entry_clean = entry_clean.lstrip('/')
+    elif entry_clean.startswith('./'):
+        entry_clean = entry_clean[2:]
+
+    clean_src = src_prefix.replace('\\', '/').strip()
+    if clean_src.startswith('/'):
+        clean_src = clean_src.lstrip('/')
+    elif clean_src.startswith('./'):
+        clean_src = clean_src[2:]
+
+    clean_dest = dest_prefix.replace('\\', '/').strip()
+    if clean_dest.startswith('/'):
+        clean_dest = clean_dest.lstrip('/')
+    elif clean_dest.startswith('./'):
+        clean_dest = clean_dest[2:]
+
+    if clean_src:
+        if entry_clean == clean_src:
+            rel = ""
+        elif entry_clean.startswith(clean_src + "/"):
+            rel = entry_clean[len(clean_src) + 1:]
+        else:
+            return None
+    else:
+        rel = entry_clean
+
+    if rel:
+        return os.path.join(clean_dest, rel) if clean_dest else rel
+    return clean_dest
+
+
+def direct_unpack_tar(archive_path: str, dest_root: str, locations: list[dict[str, str]]) -> None:
+    """Directly extracts matching members from a tar archive to the destination build tree without intermediate copies."""
+    with tarfile.open(archive_path) as tar:
+        if not locations:
+            names = [m.name for m in tar.getmembers()]
+            locations = resolve_heuristic_locations(names)
+            if locations:
+                logging.info(" Auto-detected unpack locations: %s", locations)
+            else:
+                logging.warning(" No unpack rules specified and no standard SourceMod directories detected in archive.")
+                return
+
+        abs_dest_root = os.path.abspath(dest_root)
+
+        for loc in locations:
+            src_rule = str(loc.get('source', ''))
+            dest_rule = str(loc.get('dest', ''))
+
+            for member in tar.getmembers():
+                target_rel = _map_entry_target(member.name, src_rule, dest_rule)
+                if target_rel is None:
+                    continue
+
+                target_path = os.path.abspath(os.path.join(dest_root, target_rel))
+                if target_path != abs_dest_root and not target_path.startswith(abs_dest_root + os.sep):
+                    raise SkError(f"Attempted Path Traversal in Tar File: {member.name}")
+
+                if member.isdir():
+                    os.makedirs(target_path, exist_ok=True)
+                elif member.isfile() or member.isreg():
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    f_obj = tar.extractfile(member)
+                    if f_obj is not None:
+                        with open(target_path, "wb") as out_f:
+                            shutil.copyfileobj(f_obj, out_f, length=64 * 1024)
+                        if member.mode & 0o111:
+                            with contextlib.suppress(OSError):
+                                os.chmod(target_path, os.stat(target_path).st_mode | 0o755)
+                elif member.issym() or member.islnk():
+                    with contextlib.suppress(OSError):
+                        if os.path.islink(target_path) or os.path.exists(target_path):
+                            os.unlink(target_path)
+                        os.symlink(member.linkname, target_path)
+
+
+def direct_unpack_zip(archive_path: str, dest_root: str, locations: list[dict[str, str]]) -> None:
+    """Directly extracts matching members from a zip archive to the destination build tree without intermediate copies."""
+    with zipfile.ZipFile(archive_path, 'r') as zf:
+        if not locations:
+            names = zf.namelist()
+            locations = resolve_heuristic_locations(names)
+            if locations:
+                logging.info(" Auto-detected unpack locations: %s", locations)
+            else:
+                logging.warning(" No unpack rules specified and no standard SourceMod directories detected in archive.")
+                return
+
+        abs_dest_root = os.path.abspath(dest_root)
+
+        for loc in locations:
+            src_rule = str(loc.get('source', ''))
+            dest_rule = str(loc.get('dest', ''))
+
+            for member in zf.infolist():
+                target_rel = _map_entry_target(member.filename, src_rule, dest_rule)
+                if target_rel is None:
+                    continue
+
+                target_path = os.path.abspath(os.path.join(dest_root, target_rel))
+                if target_path != abs_dest_root and not target_path.startswith(abs_dest_root + os.sep):
+                    raise SkError(f"Attempted Path Traversal in Zip File: {member.filename}")
+
+                norm_name = member.filename.replace('\\', '/').strip()
+                if member.is_dir() or norm_name.endswith('/'):
+                    os.makedirs(target_path, exist_ok=True)
+                else:
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    with zf.open(member, 'r') as src_f, open(target_path, "wb") as out_f:
+                        shutil.copyfileobj(src_f, out_f, length=64 * 1024)
+
+                    perms = (member.external_attr >> 16) & 0o777
+                    if perms & 0o111:
+                        with contextlib.suppress(OSError):
+                            os.chmod(target_path, os.stat(target_path).st_mode | 0o755)
+
+
+def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileManager, tmp: FileManager | None = None) -> None:
     """Extracts files from driver source and copies them into the target build tree."""
     from sourceknight.drivers import GitDriver
 
@@ -279,8 +443,10 @@ def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileMana
             dep_state = state.dependencies.get(drvcls.model.name, {}) if state else {}
             loc = dep_state.get('location', drvcls.model.params.get('location', f".sourceknight/cache/{drvcls.model.name}"))
             base_search = os.path.normpath(os.path.join(drvcls.ctx.path, str(loc)))
-        else:
+        elif tmp is not None:
             base_search = tmp.path
+        else:
+            base_search = ""
         locations = resolve_heuristic_locations(base_search)
         if locations:
             logging.info(" Auto-detected unpack locations: %s", locations)
@@ -298,8 +464,10 @@ def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileMana
             dep_state = state.dependencies.get(drvcls.model.name, {}) if state else {}
             loc = dep_state.get('location', drvcls.model.params.get('location', f".sourceknight/cache/{drvcls.model.name}"))
             src = os.path.normpath(os.path.join(drvcls.ctx.path, str(loc), src_entry))
-        else:
+        elif tmp is not None:
             src = os.path.normpath(os.path.join(tmp.path, src_entry))
+        else:
+            continue
         dst = os.path.normpath(os.path.join(mgr.path, dest_entry))
 
         logging.info("Extracting %s to %s", src, dst)
@@ -336,7 +504,6 @@ def tar_safe_extract(tar: Any, path: str = ".", members: Any = None, *, numeric_
             raise SkError("Attempted Path Traversal in Tar File")
 
     tar.extractall(path, members, numeric_owner=numeric_owner)
-
 
 
 def adjust_sourcemod_platform(model: Any) -> Any:

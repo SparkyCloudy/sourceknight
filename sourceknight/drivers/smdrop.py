@@ -4,14 +4,13 @@ import os
 import platform
 import re
 import tarfile
-import uuid
 import zipfile
 from typing import Any
 
 import requests
 
 from ..errors import SkError
-from ..utils import FileManager, extract_and_copy, tar_safe_extract
+from ..utils import FileManager, direct_unpack_tar, direct_unpack_zip
 from .base import basedriver
 
 
@@ -98,21 +97,15 @@ class SmdropDriver(basedriver):
 
         archive_path = os.path.join(self.ctx.path, str(archive_rel))
 
-        with FileManager(self.ctx, uuid.uuid4().hex, True) as tmp:
-            if zipfile.is_zipfile(archive_path):
-                with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                    logging.info(" Unpacking zip archive...")
-                    tmp_abs = os.path.abspath(tmp.path)
-                    for member in zip_ref.namelist():
-                        member_path = os.path.abspath(os.path.join(tmp.path, member))
-                        if not member_path.startswith(tmp_abs):
-                            raise SkError("Attempted path traversal in zip file")
-                    zip_ref.extractall(tmp.path)
-            elif tarfile.is_tarfile(archive_path):
-                with tarfile.open(archive_path) as tar:
-                    logging.info(" Unpacking tar archive...")
-                    tar_safe_extract(tar, tmp.path)
-            else:
-                raise SkError(f"Unknown archive format for {archive_path}")
+        if zipfile.is_zipfile(archive_path):
+            logging.info(" Unpacking %s (zip)...", self.model.name)
+            direct_unpack_zip(archive_path, mgr.path, locations)
+        elif tarfile.is_tarfile(archive_path):
+            logging.info(" Unpacking %s (tar)...", self.model.name)
+            direct_unpack_tar(archive_path, mgr.path, locations)
+        else:
+            raise SkError(f"Unknown archive format for {archive_path}")
 
-            extract_and_copy(self, locations, mgr, tmp)
+        self.ctx.state.update(build={
+            self.model.name: self.model.state(driver='smdrop')
+        })
