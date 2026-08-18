@@ -137,8 +137,8 @@ class TestUtilsFunctions(unittest.TestCase):
             self.assertEqual(adjusted2.type, "zip")
 
     def test_sk_version_compatibility(self):
-        v_current = SkVersion("0.5")
-        v_compat = SkVersion("0.5.0")
+        v_current = SkVersion("0.6")
+        v_compat = SkVersion("0.6.0")
         self.assertFalse(v_current.compatibility(v_compat).major)
         self.assertFalse(v_current.compatibility(v_compat).newer)
 
@@ -147,7 +147,7 @@ class TestUtilsFunctions(unittest.TestCase):
 
         v_newer_req = SkVersion("0.9")
         self.assertTrue(v_current.compatibility(v_newer_req).newer)
-        self.assertEqual(str(v_current), "0.5")
+        self.assertEqual(str(v_current), "0.6")
 
     def test_resolve_heuristic_locations_all_variants(self):
         with tempfile.TemporaryDirectory() as tmpdir:

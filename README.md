@@ -69,7 +69,7 @@ my-plugin/
 
 ```yaml
 project:
-  sourceknight: 0.5
+  sourceknight: 0.6
   name: my-plugin
 
   dependencies:
