@@ -73,7 +73,11 @@ class Context:
                 loaded = yaml.load(fh, Loader=yamlLoader)
                 if not loaded or 'project' not in loaded:
                     raise SkError("sourceknight.yaml must define a root 'project' section")
+                self.raw_manifest = loaded
                 self.defs = loaded['project']
+                self.package_defs = loaded.get('package', {})
+                if 'package' in loaded and 'package' not in self.defs:
+                    self.defs['package'] = loaded['package']
         except OSError as err:
             raise SkError("Project directory does not exist or does not contain sourceknight.yaml") from err
         except yaml.YAMLError as e:
