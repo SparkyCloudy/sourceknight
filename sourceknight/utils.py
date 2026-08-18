@@ -210,7 +210,7 @@ def check_version(defs: dict[str, Any]) -> None:
         cur_ver_str = version('sourceknight')
     except Exception:
         # Fallback when running directly from source tree
-        cur_ver_str = "0.6.2"
+        cur_ver_str = "0.6.3"
     cur = SkVersion(cur_ver_str)
     err = RuntimeError("this version of sourceknight is incompatible with this manifest")
     compat = cur.compatibility(ver)
@@ -350,7 +350,7 @@ def direct_unpack_tar(archive_path: str, dest_root: str, locations: list[dict[st
     """Directly extracts matching members from a tar archive to the destination build tree without intermediate copies."""
     with tarfile.open(archive_path) as tar:
         if not locations:
-            names = [m.name for m in tar.getmembers()]
+            names = tar.getnames()
             locations = resolve_heuristic_locations(names)
             if locations:
                 logging.info(" Auto-detected unpack locations: %s", locations)
@@ -359,44 +359,49 @@ def direct_unpack_tar(archive_path: str, dest_root: str, locations: list[dict[st
                 return
 
         abs_dest_root = os.path.abspath(dest_root)
+        loc_rules = [
+            (str(loc.get('source', '')), str(loc.get('dest', '')))
+            for loc in locations
+        ]
 
-        for loc in locations:
-            src_rule = str(loc.get('source', ''))
-            dest_rule = str(loc.get('dest', ''))
+        for member in tar:
+            target_rel = None
+            for src_rule, dest_rule in loc_rules:
+                rel = _map_entry_target(member.name, src_rule, dest_rule)
+                if rel is not None:
+                    target_rel = rel
+                    break
 
-            for member in tar.getmembers():
-                target_rel = _map_entry_target(member.name, src_rule, dest_rule)
-                if target_rel is None:
-                    continue
+            if target_rel is None:
+                continue
 
-                target_path = os.path.abspath(os.path.join(dest_root, target_rel))
-                if target_path != abs_dest_root and not target_path.startswith(abs_dest_root + os.sep):
-                    raise SkError(f"Attempted Path Traversal in Tar File: {member.name}")
+            target_path = os.path.abspath(os.path.join(dest_root, target_rel))
+            if target_path != abs_dest_root and not target_path.startswith(abs_dest_root + os.sep):
+                raise SkError(f"Attempted Path Traversal in Tar File: {member.name}")
 
-                if member.isdir():
-                    os.makedirs(target_path, exist_ok=True)
-                elif member.isfile() or member.isreg():
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    f_obj = tar.extractfile(member)
-                    if f_obj is not None:
-                        with open(target_path, "wb") as out_f:
-                            shutil.copyfileobj(f_obj, out_f, length=64 * 1024)
-                        if member.mode & 0o111:
-                            with contextlib.suppress(OSError):
-                                os.chmod(target_path, os.stat(target_path).st_mode | 0o755)
-                elif member.issym() or member.islnk():
-                    with contextlib.suppress(OSError):
-                        if os.path.islink(target_path) or os.path.exists(target_path):
-                            os.unlink(target_path)
-                        os.symlink(member.linkname, target_path)
+            if member.isdir():
+                os.makedirs(target_path, exist_ok=True)
+            elif member.isfile() or member.isreg():
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                f_obj = tar.extractfile(member)
+                if f_obj is not None:
+                    with open(target_path, "wb") as out_f:
+                        shutil.copyfileobj(f_obj, out_f, length=64 * 1024)
+                    if member.mode & 0o111:
+                        with contextlib.suppress(OSError):
+                            os.chmod(target_path, os.stat(target_path).st_mode | 0o755)
+            elif member.issym() or member.islnk():
+                with contextlib.suppress(OSError):
+                    if os.path.islink(target_path) or os.path.exists(target_path):
+                        os.unlink(target_path)
+                    os.symlink(member.linkname, target_path)
 
 
 def direct_unpack_zip(archive_path: str, dest_root: str, locations: list[dict[str, str]]) -> None:
     """Directly extracts matching members from a zip archive to the destination build tree without intermediate copies."""
     with zipfile.ZipFile(archive_path, 'r') as zf:
         if not locations:
-            names = zf.namelist()
-            locations = resolve_heuristic_locations(names)
+            locations = resolve_heuristic_locations(zf.namelist())
             if locations:
                 logging.info(" Auto-detected unpack locations: %s", locations)
             else:
@@ -404,32 +409,38 @@ def direct_unpack_zip(archive_path: str, dest_root: str, locations: list[dict[st
                 return
 
         abs_dest_root = os.path.abspath(dest_root)
+        loc_rules = [
+            (str(loc.get('source', '')), str(loc.get('dest', '')))
+            for loc in locations
+        ]
 
-        for loc in locations:
-            src_rule = str(loc.get('source', ''))
-            dest_rule = str(loc.get('dest', ''))
+        for member in zf.infolist():
+            target_rel = None
+            for src_rule, dest_rule in loc_rules:
+                rel = _map_entry_target(member.filename, src_rule, dest_rule)
+                if rel is not None:
+                    target_rel = rel
+                    break
 
-            for member in zf.infolist():
-                target_rel = _map_entry_target(member.filename, src_rule, dest_rule)
-                if target_rel is None:
-                    continue
+            if target_rel is None:
+                continue
 
-                target_path = os.path.abspath(os.path.join(dest_root, target_rel))
-                if target_path != abs_dest_root and not target_path.startswith(abs_dest_root + os.sep):
-                    raise SkError(f"Attempted Path Traversal in Zip File: {member.filename}")
+            target_path = os.path.abspath(os.path.join(dest_root, target_rel))
+            if target_path != abs_dest_root and not target_path.startswith(abs_dest_root + os.sep):
+                raise SkError(f"Attempted Path Traversal in Zip File: {member.filename}")
 
-                norm_name = member.filename.replace('\\', '/').strip()
-                if member.is_dir() or norm_name.endswith('/'):
-                    os.makedirs(target_path, exist_ok=True)
-                else:
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    with zf.open(member, 'r') as src_f, open(target_path, "wb") as out_f:
-                        shutil.copyfileobj(src_f, out_f, length=64 * 1024)
+            norm_name = member.filename.replace('\\', '/').strip()
+            if member.is_dir() or norm_name.endswith('/'):
+                os.makedirs(target_path, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                with zf.open(member, 'r') as src_f, open(target_path, "wb") as out_f:
+                    shutil.copyfileobj(src_f, out_f, length=64 * 1024)
 
-                    perms = (member.external_attr >> 16) & 0o777
-                    if perms & 0o111:
-                        with contextlib.suppress(OSError):
-                            os.chmod(target_path, os.stat(target_path).st_mode | 0o755)
+                perms = (member.external_attr >> 16) & 0o777
+                if perms & 0o111:
+                    with contextlib.suppress(OSError):
+                        os.chmod(target_path, os.stat(target_path).st_mode | 0o755)
 
 
 def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileManager, tmp: FileManager | None = None) -> None:

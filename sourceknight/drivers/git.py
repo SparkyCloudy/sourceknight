@@ -30,17 +30,17 @@ class GitDriver(basedriver):
             repo = Repo(loc)
         else:
             logging.info(" Cloning from %s (shallow)", self.model.params['repo'])
-            clone_opts = ['--single-branch', '--no-tags', '-c', 'advice.detachedHead=false']
+            clone_opts = ['--single-branch', '--no-tags']
             try:
                 if self.model.version is not None:
                     repo = Repo.clone_from(self.model.params['repo'], loc, depth=1, branch=str(self.model.version), multi_options=clone_opts)
                 else:
                     repo = Repo.clone_from(self.model.params['repo'], loc, depth=1, multi_options=clone_opts)
                 fetched = True
-            except Exception:
+            except Exception as e:
                 if os.path.exists(loc):
                     shutil.rmtree(loc, ignore_errors=True)
-                logging.info(" Shallow clone fallback: performing full clone from %s", self.model.params['repo'])
+                logging.warning(" Shallow clone fallback (%s): performing full clone from %s", e, self.model.params['repo'])
                 repo = Repo.clone_from(self.model.params['repo'], loc)
                 fetched = True
 
