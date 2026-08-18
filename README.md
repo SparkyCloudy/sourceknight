@@ -23,10 +23,11 @@ SourceKnight brings modern package management concepts to the SourceMod ecosyste
 - **Multi-Source Dependency Management**: Acquire dependencies from Git repositories, pre-built binary releases (GitHub, GitLab, Gitea), AlliedModders SMDrop builds, and archive files.
 - **Parallel Compilation (`-j` / `--parallel`)**: Concurrently compiles multiple `.sp` targets in parallel.
 - **Zero-Config Include Resolution**: Automatically scans and maps `addons/`, `include/`, `scripting/`, and loose `.inc` headers into the virtual build tree without requiring manual unpack mapping.
+- **Native Packaging & Distribution Engine**: Smart auto-discovery and bundling of compiled `.smx` binaries alongside runtime assets (`translations`, `configs`, `gamedata`, `cfg`, `sound`, `models`, `materials`, `common`) into structured package directories or compressed release archives (`.zip` / `.tar.gz`).
 - **Resilient Compilation Loop**: Builds all targets and reports overall status, with optional `--fail-fast` and `--report json` output.
 - **Formatted & Colorized Diagnostics**: Highlights compiler errors and warnings with ANSI colors in terminals and generates inline annotations in GitHub Actions.
 - **Dynamic Dependency Overrides**: Override dependency versions at runtime via CLI flags (`--override-dep`) or environment variables (`SK_OVERRIDE_<NAME>`) for CI matrix testing.
-- **Official GitHub Action**: Pre-packaged composite action with dependency caching support.
+- **Official GitHub Action**: Pre-packaged composite action with standalone binary download and dependency caching support.
 
 ---
 
@@ -76,17 +77,21 @@ my-plugin/
 ├── sourceknight.yaml
 └── addons/
     └── sourcemod/
-        └── scripting/
-            ├── my_plugin.sp
-            └── include/
-                └── my_plugin_internal.inc
+        ├── scripting/
+        │   ├── my_plugin.sp
+        │   └── include/
+        │       └── my_plugin_internal.inc
+        ├── translations/
+        │   └── my_plugin.phrases.txt
+        └── configs/
+            └── my_plugin.cfg
 ```
 
 ### 2. Configure `sourceknight.yaml`
 
 ```yaml
 project:
-  sourceknight: 0.6
+  sourceknight: 0.7
   name: my-plugin
 
   dependencies:
@@ -112,18 +117,28 @@ project:
   # List of target .sp files to compile (without .sp extension)
   targets:
     - my_plugin
+
+# Optional: Custom packaging & release distribution settings
+package:
+  output: build/package
+  archive: zip                 # Options: "zip", "tar.gz", "both", or false
 ```
 
-### 3. Build Plugin
+### 3. Build & Package Plugin
 
 ```bash
+# Build only
 sourceknight build
+
+# Build and package for distribution in one command
+sourceknight build --package -o dist/
 ```
 
-This command runs three steps automatically:
+This command runs the entire pipeline automatically:
 1. **`update`**: Concurrently downloads and caches all declared dependencies.
 2. **`unpack`**: Stages headers and assets into an isolated build tree at `.sourceknight/build/`.
-3. **`compile`**: Invokes `spcomp` across targets and outputs `.smx` binaries.
+3. **`compile`**: Concurrently invokes `spcomp` across targets and outputs `.smx` binaries.
+4. **`package`**: Auto-discovers and bundles `.smx` binaries and runtime assets into `dist/`.
 
 ---
 
@@ -137,12 +152,16 @@ For projects with multiple plugin targets, compile concurrently across all avail
 sourceknight build -j 4
 ```
 
-### Custom Output Directory
+### Distribution Packaging & Archiving
 
-Specify where compiled `.smx` binaries should be placed:
+Bundle compiled plugins and assets directly into `.zip` or `.tar.gz` release archives:
 
 ```bash
-sourceknight build -o plugins/
+# Package into custom directory
+sourceknight package -o /tmp/package
+
+# Package and create both .zip and .tar.gz archives
+sourceknight package -o dist/ --zip --tar
 ```
 
 ### Resilient CI Reporting
@@ -170,7 +189,7 @@ sourceknight build --report json --fail-fast
 
 ## CI/CD: GitHub Actions Integration
 
-Use the official SourceKnight action in `.github/workflows/ci.yml`:
+Use the official SourceKnight action in `.github/workflows/ci.yml` for fast, zero-boilerplate builds and packaging:
 
 ```yaml
 name: CI
@@ -187,18 +206,13 @@ jobs:
       - name: Setup SourceKnight
         uses: SparkyCloudy/sourceknight@master
 
-      - name: Build Plugins
-        run: sourceknight build -j 4
+      - name: Build and Package
+        run: sourceknight build --package -o /tmp/package
 
-      - name: Package Output
-        run: |
-          mkdir -p /tmp/package/addons/sourcemod/plugins
-          cp addons/sourcemod/plugins/*.smx /tmp/package/addons/sourcemod/plugins/
-
-      - name: Upload Artifact
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: plugins
+          name: Linux
           path: /tmp/package
 ```
 
@@ -209,6 +223,7 @@ jobs:
 | Command | Description |
 | :--- | :--- |
 | `sourceknight build` | Runs the full build cycle (`update` &rarr; `unpack` &rarr; `compile`). |
+| `sourceknight package` (alias `pack`) | Assembles compiled binaries and assets into a distribution package directory or archive. |
 | `sourceknight update` | Concurrently fetches and updates all dependencies into `.sourceknight/cache`. |
 | `sourceknight unpack` | Extracts dependencies from cache into `.sourceknight/build`. |
 | `sourceknight compile [targets...]` | Compiles all or specific targets using the resolved compiler. |
@@ -216,13 +231,16 @@ jobs:
 
 ### CLI Options
 
+- `-P, --package`: Run packaging step after successful compilation (`sourceknight build -P`).
+- `-o, --output <path>`: Specify destination output directory for packaging or compilation.
+- `--zip`: Generate a compressed `.zip` release archive when packaging.
+- `--tar, --tar-gz`: Generate a compressed `.tar.gz` release archive when packaging.
 - `-j, --jobs, --parallel <N>`: Set maximum concurrent compilation worker threads.
-- `-o, --output-dir <path>`: Specify destination directory for compiled `.smx` files.
 - `--fail-fast`: Abort compilation immediately on the first target failure.
 - `--report json`: Generate `compile_report.json` with detailed target metrics.
 - `--no-color`: Disable ANSI color rendering in compiler diagnostics.
 - `--override-dep <name>=<version>`: Override dependency versions at runtime.
-- `-clean` / `-c` (for `unpack`): Clean the `.sourceknight/build` staging directory before unpacking.
+- `--clean` (for `unpack` / `package`): Clean destination directories before unpacking or packaging.
 
 ---
 
