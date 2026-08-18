@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from typing import TYPE_CHECKING, Optional
 
 from git.repo import Repo
@@ -28,9 +29,19 @@ class GitDriver(basedriver):
         if os.path.isdir(loc):
             repo = Repo(loc)
         else:
-            logging.info(" Cloning from %s", self.model.params['repo'])
-            repo = Repo.clone_from(self.model.params['repo'], loc)
-            fetched = True
+            logging.info(" Cloning from %s (shallow)", self.model.params['repo'])
+            try:
+                if self.model.version is not None:
+                    repo = Repo.clone_from(self.model.params['repo'], loc, depth=1, branch=str(self.model.version))
+                else:
+                    repo = Repo.clone_from(self.model.params['repo'], loc, depth=1)
+                fetched = True
+            except Exception:
+                if os.path.exists(loc):
+                    shutil.rmtree(loc, ignore_errors=True)
+                logging.info(" Shallow clone fallback: performing full clone from %s", self.model.params['repo'])
+                repo = Repo.clone_from(self.model.params['repo'], loc)
+                fetched = True
 
 
         try:
