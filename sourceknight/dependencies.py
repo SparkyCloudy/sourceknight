@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 from sourceknight.drivers import (
     FileDriver,
     GitDriver,
+    ReleaseDriver,
     SmdropDriver,
     TarDriver,
     ZipDriver,
@@ -57,6 +58,7 @@ drivers_by_name: dict[str, type[basedriver]] = {
     'file': FileDriver,
     'zip': ZipDriver,
     'smdrop': SmdropDriver,
+    'release': ReleaseDriver,
 }
 
 
