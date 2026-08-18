@@ -275,7 +275,10 @@ def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileMana
     # Apply heuristic auto-unpacking if no unpack locations were explicitly provided
     if not locations:
         if isinstance(drvcls, GitDriver):
-            base_search = os.path.normpath(os.path.join(drvcls.ctx.path, str(drvcls.model.params.get('location', ''))))
+            state = getattr(drvcls.ctx, "state", None)
+            dep_state = state.dependencies.get(drvcls.model.name, {}) if state else {}
+            loc = dep_state.get('location', drvcls.model.params.get('location', f".sourceknight/cache/{drvcls.model.name}"))
+            base_search = os.path.normpath(os.path.join(drvcls.ctx.path, str(loc)))
         else:
             base_search = tmp.path
         locations = resolve_heuristic_locations(base_search)
@@ -291,7 +294,10 @@ def extract_and_copy(drvcls: Any, locations: list[dict[str, str]], mgr: FileMana
         dest_entry = dest_entry.removeprefix('/')
 
         if isinstance(drvcls, GitDriver):
-            src = os.path.normpath(os.path.join(drvcls.ctx.path, str(drvcls.model.params.get('location', '')), src_entry))
+            state = getattr(drvcls.ctx, "state", None)
+            dep_state = state.dependencies.get(drvcls.model.name, {}) if state else {}
+            loc = dep_state.get('location', drvcls.model.params.get('location', f".sourceknight/cache/{drvcls.model.name}"))
+            src = os.path.normpath(os.path.join(drvcls.ctx.path, str(loc), src_entry))
         else:
             src = os.path.normpath(os.path.join(tmp.path, src_entry))
         dst = os.path.normpath(os.path.join(mgr.path, dest_entry))

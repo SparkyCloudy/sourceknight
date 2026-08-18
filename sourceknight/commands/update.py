@@ -10,9 +10,8 @@ class Update(Command):
 
     @classmethod
     def add_args(cls, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument('-f,--force', dest='force', action='store_true',
-                            help="Force updating all dependencies, even if they are believed to be up to date")
+        parser.add_argument('-f', '--force', dest='force', action='store_true',
+                            help="Force updating all dependencies, even if they have already been cached")
 
     def __call__(self, args: argparse.Namespace) -> None:
         do_update(self._context, args.force)
-

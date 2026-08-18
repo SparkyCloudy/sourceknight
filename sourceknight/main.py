@@ -10,13 +10,14 @@ from sourceknight.commands.unpack import Unpack
 from sourceknight.commands.update import Update
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     parser = argparse.ArgumentParser("sourceknight", description="simple dependency manager for sourcemod projects")
-    parser.add_argument('-p,--path', dest="path",
+    parser.add_argument('-p', '--path', dest="path",
                         help="Path to the root of your project (directory containing sourceknight.yaml) - defaults to current directory",
                         default=".")
+    parser.add_argument('-v', '--verbose', action='store_true', help="Enable verbose debug logging")
     parser.add_argument('--override-dep', action='append', default=[],
                         help="Override dependency version (e.g. --override-dep sourcemod=1.12.x)")
 
@@ -33,7 +34,9 @@ def main() -> None:
     for command in commands:
         command.install(subparsers)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if getattr(args, 'verbose', False):
+        logging.getLogger().setLevel(logging.DEBUG)
 
     try:
         try:
@@ -43,8 +46,10 @@ def main() -> None:
         with Context(args.path, args=args) as ctx:
             command(ctx)(args)
     except SkError as e:
-
         logging.error(e)
+        sys.exit(1)
+    except Exception as e:
+        logging.exception("An unexpected error occurred: %s", e)
         sys.exit(1)
 
     sys.exit(0)
