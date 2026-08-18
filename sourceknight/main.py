@@ -5,6 +5,7 @@ import sys
 from sourceknight import Context, SkError
 from sourceknight.commands.build import Build
 from sourceknight.commands.compile import Compile
+from sourceknight.commands.package import Package
 from sourceknight.commands.status import Status
 from sourceknight.commands.unpack import Unpack
 from sourceknight.commands.update import Update
@@ -25,10 +26,11 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.required = True
 
     # A list of all available command classes
-    commands = [Update, Status, Unpack, Compile, Build]
+    commands = [Update, Status, Unpack, Compile, Build, Package]
 
     # Dynamically create a map from command name to class
     command_map = {cmd.name: cmd for cmd in commands}
+    command_map['pack'] = Package
 
     # Install all commands
     for command in commands:

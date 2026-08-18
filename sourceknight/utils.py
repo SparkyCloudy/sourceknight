@@ -210,7 +210,7 @@ def check_version(defs: dict[str, Any]) -> None:
         cur_ver_str = version('sourceknight')
     except Exception:
         # Fallback when running directly from source tree
-        cur_ver_str = "0.6.3"
+        cur_ver_str = "0.7.0"
     cur = SkVersion(cur_ver_str)
     err = RuntimeError("this version of sourceknight is incompatible with this manifest")
     compat = cur.compatibility(ver)

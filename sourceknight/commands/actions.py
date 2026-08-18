@@ -78,3 +78,23 @@ def do_unpack(context: "Context", force: bool = False, clean: bool = False) -> N
                     force,
                 )
         fmgr.release_dir()
+
+
+def do_package(
+    context: "Context",
+    output_dir: str | None = None,
+    create_zip: bool = False,
+    create_tar: bool = False,
+    clean: bool = True,
+) -> str:
+    """Logic for the package command."""
+    from sourceknight.packager import Packager
+
+    packager = Packager(context)
+    return packager.package(
+        output_dir=output_dir,
+        create_zip=create_zip,
+        create_tar=create_tar,
+        clean=clean,
+    )
+
