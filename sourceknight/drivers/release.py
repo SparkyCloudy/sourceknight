@@ -6,7 +6,7 @@ import re
 import tarfile
 import urllib.parse
 import zipfile
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import requests
 
@@ -14,6 +14,9 @@ from sourceknight.errors import SkError
 from sourceknight.utils import FileManager, extract_and_copy
 
 from .base import basedriver
+
+if TYPE_CHECKING:
+    from sourceknight.dependencies import Dependency
 
 
 class ReleaseDriver(basedriver):
@@ -115,8 +118,11 @@ class ReleaseDriver(basedriver):
         req.raise_for_status()
         data = req.json()
         release_data = data[0] if isinstance(data, list) and len(data) else data
+        if not isinstance(release_data, dict):
+            raise SkError(f"Unexpected response format from GitLab release API for '{repo}'")
 
-        assets = release_data.get("assets", {}).get("links", [])
+        assets_dict = release_data.get("assets", {})
+        assets = assets_dict.get("links", []) if isinstance(assets_dict, dict) else []
         if not assets:
             raise SkError(f"No asset links found in GitLab release for '{repo}'")
 
@@ -127,7 +133,7 @@ class ReleaseDriver(basedriver):
         if not matched_name or matched_name not in asset_map:
             raise SkError(f"No asset matching pattern '{pattern}' in GitLab release for '{repo}'")
 
-        return asset_map[matched_name], release_data.get("tag_name", version)
+        return asset_map[matched_name], str(release_data.get("tag_name", version))
 
     def _resolve_asset_url(self) -> tuple[str, str]:
         """Determines the target download URL and resolved release tag."""
@@ -144,17 +150,17 @@ class ReleaseDriver(basedriver):
             # Default to GitHub resolution
             return self._resolve_github_asset_url(repo, version)
 
-    def check_update(self, current_model: Any) -> bool:
-        if current_model is None:
+    def check_update(self, current: Optional["Dependency"]) -> bool:
+        if current is None:
             return True
         if self.model.version is None or self.model.version.lower() == "latest":
             return True
-        return str(self.model.version) != str(current_model.version)
+        return str(self.model.version) != str(current.version)
 
-    def update(self, fmgr: FileManager) -> None:
+    def update(self, mgr: FileManager) -> None:
         download_url, resolved_version = self._resolve_asset_url()
         logging.info(" Downloading release asset %s (%s)...", self.model.name, resolved_version)
-        local_archive = fmgr.acquire(download_url)
+        local_archive = mgr.acquire(download_url)
         self.ctx.state.update(
             dependencies={
                 self.model.name: self.model.state(
@@ -166,9 +172,10 @@ class ReleaseDriver(basedriver):
         )
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
-        state = self.ctx.state.dependencies[self.model.name]
+        name = str(self.model.name or "")
+        state = self.ctx.state.dependencies.get(name, {})
         with FileManager(self.ctx, "cache") as fmgr:
-            archive_path = os.path.join(fmgr.path, state["file"])
+            archive_path = os.path.join(fmgr.path, state.get("file", ""))
 
             with FileManager(self.ctx, "tmp") as tmp:
                 if zipfile.is_zipfile(archive_path):

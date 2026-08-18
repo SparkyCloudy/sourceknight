@@ -27,7 +27,8 @@ class FileDriver(basedriver):
         })
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
-        state = self.ctx.state.dependencies.get(self.model.name, {})
+        name = str(self.model.name or "")
+        state = self.ctx.state.dependencies.get(name, {})
         loc = state.get('location', self.model.params.get('path', self.model.params.get('location', '')))
         src_path = os.path.normpath(os.path.join(self.ctx.path, str(loc)))
 
