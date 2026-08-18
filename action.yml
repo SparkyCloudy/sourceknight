@@ -6,14 +6,14 @@ branding:
   color: 'blue'
 
 inputs:
-  python-version:
-    description: 'Python version to set up'
-    required: false
-    default: '3.12'
   sourceknight-version:
     description: 'Sourceknight package version to install'
     required: false
-    default: ''
+    default: '0.6.1'
+  use-binary:
+    description: 'Use ultra-fast standalone binary instead of Python pip (default: true)'
+    required: false
+    default: 'true'
   cache:
     description: 'Whether to enable dependency cache for .sourceknight/cache'
     required: false
@@ -31,21 +31,12 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ inputs.python-version }}
-
-    - name: Cache dependencies and pip packages
+    - name: Cache dependencies
       if: ${{ inputs.cache == 'true' }}
       id: cache
       uses: actions/cache@v4
       with:
-        path: |
-          ${{ inputs.project-path }}/.sourceknight/cache
-          ~/.cache/pip
-          ~/AppData/Local/pip/Cache
-          ~/Library/Caches/pip
+        path: ${{ inputs.project-path }}/.sourceknight/cache
         key: sourceknight-${{ runner.os }}-${{ hashFiles(format('{0}/sourceknight.yaml', inputs.project-path)) }}
         restore-keys: |
           sourceknight-${{ runner.os }}-
@@ -53,11 +44,47 @@ runs:
     - name: Install Sourceknight
       shell: bash
       run: |
-        SK_VER="${{ inputs.sourceknight-version }}"
-        if [ -n "$SK_VER" ]; then
-          pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/v${SK_VER}/sourceknight-${SK_VER}-py3-none-any.whl" || pip install --prefer-binary "sourceknight==${SK_VER}"
-        elif [ -f "${{ github.action_path }}/pyproject.toml" ]; then
-          pip install --prefer-binary "${{ github.action_path }}"
-        else
-          pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/0.6.0/sourceknight-0.6.0-py3-none-any.whl" || pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/v0.6.0/sourceknight-0.6.0-py3-none-any.whl" || pip install --prefer-binary git+https://github.com/SparkyCloudy/sourceknight.git
+        VERSION="${{ inputs.sourceknight-version }}"
+        [ -z "$VERSION" ] && VERSION="0.6.1"
+        USE_BINARY="${{ inputs.use-binary }}"
+        INSTALLED=0
+
+        if [ "$USE_BINARY" = "true" ]; then
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            echo "Fetching Sourceknight standalone binary for Linux x86_64 (v${VERSION})..."
+            BIN_URL="https://github.com/SparkyCloudy/sourceknight/releases/download/${VERSION}/sourceknight-linux-x86_64"
+            BIN_URL_V="https://github.com/SparkyCloudy/sourceknight/releases/download/v${VERSION}/sourceknight-linux-x86_64"
+            
+            mkdir -p "$HOME/.local/bin"
+            if sudo curl -fsSL "$BIN_URL" -o /usr/local/bin/sourceknight 2>/dev/null || \
+               sudo curl -fsSL "$BIN_URL_V" -o /usr/local/bin/sourceknight 2>/dev/null || \
+               curl -fsSL "$BIN_URL" -o "$HOME/.local/bin/sourceknight" 2>/dev/null || \
+               curl -fsSL "$BIN_URL_V" -o "$HOME/.local/bin/sourceknight" 2>/dev/null; then
+              sudo chmod +x /usr/local/bin/sourceknight 2>/dev/null || chmod +x "$HOME/.local/bin/sourceknight"
+              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+              echo "Sourceknight standalone binary installed successfully."
+              INSTALLED=1
+            fi
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            echo "Fetching Sourceknight standalone binary for Windows x86_64 (v${VERSION})..."
+            BIN_DIR="$RUNNER_TEMP/sourceknight/bin"
+            mkdir -p "$BIN_DIR"
+            BIN_URL="https://github.com/SparkyCloudy/sourceknight/releases/download/${VERSION}/sourceknight-windows-x86_64.exe"
+            BIN_URL_V="https://github.com/SparkyCloudy/sourceknight/releases/download/v${VERSION}/sourceknight-windows-x86_64.exe"
+            
+            if curl -fsSL "$BIN_URL" -o "$BIN_DIR/sourceknight.exe" 2>/dev/null || \
+               curl -fsSL "$BIN_URL_V" -o "$BIN_DIR/sourceknight.exe" 2>/dev/null; then
+              echo "$BIN_DIR" >> "$GITHUB_PATH"
+              echo "Sourceknight standalone binary installed successfully."
+              INSTALLED=1
+            fi
+          fi
+        fi
+
+        if [ "$INSTALLED" -eq 0 ]; then
+          echo "Installing Sourceknight via Python pip..."
+          pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/${VERSION}/sourceknight-${VERSION}-py3-none-any.whl" || \
+          pip install --prefer-binary "https://github.com/SparkyCloudy/sourceknight/releases/download/v${VERSION}/sourceknight-${VERSION}-py3-none-any.whl" || \
+          pip install --prefer-binary "sourceknight==${VERSION}" || \
+          pip install --prefer-binary git+https://github.com/SparkyCloudy/sourceknight.git
         fi
