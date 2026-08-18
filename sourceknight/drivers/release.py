@@ -2,21 +2,17 @@ import fnmatch
 import logging
 import os
 import platform
-import re
 import tarfile
 import urllib.parse
 import zipfile
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any
 
 import requests
 
 from sourceknight.errors import SkError
-from sourceknight.utils import FileManager, extract_and_copy
+from sourceknight.utils import FileManager, direct_unpack_tar, direct_unpack_zip
 
 from .base import basedriver
-
-if TYPE_CHECKING:
-    from sourceknight.dependencies import Dependency
 
 
 class ReleaseDriver(basedriver):
@@ -53,36 +49,39 @@ class ReleaseDriver(basedriver):
 
     def _resolve_github_asset_url(self, repo: str, version: str) -> tuple[str, str]:
         """Resolves asset download URL from GitHub Releases API."""
-        # Clean repo string: e.g. "https://github.com/owner/repo" -> "owner/repo"
-        repo_clean = re.sub(r"^https?://github\.com/", "", repo).rstrip("/").removesuffix(".git")
-        parts = repo_clean.split("/")
-        if len(parts) != 2:
-            raise SkError(f"Invalid GitHub repository identifier '{repo}' for release driver")
-
-        owner, repo_name = parts
-        if not version or version.lower() == "latest":
-            api_url = f"https://api.github.com/repos/{owner}/{repo_name}/releases/latest"
+        if repo.startswith("http://") or repo.startswith("https://"):
+            parsed = urllib.parse.urlparse(repo)
+            path = parsed.path.strip("/").removesuffix(".git")
         else:
-            tag = version if version.startswith("v") else f"v{version}"
-            api_url = f"https://api.github.com/repos/{owner}/{repo_name}/releases/tags/{tag}"
+            path = repo.strip("/").removesuffix(".git")
 
-        headers = {"User-Agent": "SourceKnight-Build-System"}
+        tag = version if version and version.lower() != "latest" else ""
+
+        if tag:
+            api_url = f"https://api.github.com/repos/{path}/releases/tags/{tag}"
+        else:
+            api_url = f"https://api.github.com/repos/{path}/releases/latest"
+
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "SourceKnight-Build-System",
+        }
         github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
         if github_token:
             headers["Authorization"] = f"token {github_token}"
 
         req = requests.get(api_url, headers=headers)
-        if req.status_code == 404 and version and not version.startswith("v"):
-            # Try exact tag name without 'v' prefix
-            api_url = f"https://api.github.com/repos/{owner}/{repo_name}/releases/tags/{version}"
-            req = requests.get(api_url, headers=headers)
+        if req.status_code == 404 and tag:
+            # Try fallback to tags/v{tag}
+            api_url_v = f"https://api.github.com/repos/{path}/releases/tags/v{tag}"
+            req = requests.get(api_url_v, headers=headers)
 
         req.raise_for_status()
         data = req.json()
 
         assets = data.get("assets", [])
         if not assets:
-            raise SkError(f"No release assets found in GitHub release for '{repo}' ({version})")
+            raise SkError(f"No release assets found in release '{tag or 'latest'}' for {repo}")
 
         asset_map = {a["name"]: a["browser_download_url"] for a in assets}
         pattern = self._get_platform_pattern()
@@ -144,18 +143,14 @@ class ReleaseDriver(basedriver):
             return self._resolve_gitlab_asset_url(repo, version)
         elif "github.com" in repo or ("/" in repo and not repo.startswith("http")):
             return self._resolve_github_asset_url(repo, version)
-        elif repo.startswith("http") and (repo.endswith(".zip") or repo.endswith(".tar.gz")):
+        elif repo.startswith("http") and (repo.endswith(".zip") or repo.endswith(".tar.gz") or repo.endswith(".tgz")):
             return repo, version
+        elif repo.startswith(("http://", "https://")):
+            if repo.endswith("/"):
+                repo = repo.rstrip("/")
+            return f"{repo}/releases/download/{version}/asset", version
         else:
-            # Default to GitHub resolution
             return self._resolve_github_asset_url(repo, version)
-
-    def check_update(self, current: Optional["Dependency"]) -> bool:
-        if current is None:
-            return True
-        if self.model.version is None or self.model.version.lower() == "latest":
-            return True
-        return str(self.model.version) != str(current.version)
 
     def update(self, mgr: FileManager) -> None:
         download_url, resolved_version = self._resolve_asset_url()
@@ -177,17 +172,14 @@ class ReleaseDriver(basedriver):
         with FileManager(self.ctx, "cache") as fmgr:
             archive_path = os.path.join(fmgr.path, state.get("file", ""))
 
-            with FileManager(self.ctx, "tmp") as tmp:
-                if zipfile.is_zipfile(archive_path):
-                    with zipfile.ZipFile(archive_path, "r") as zf:
-                        zf.extractall(tmp.path)
-                elif tarfile.is_tarfile(archive_path):
-                    with tarfile.open(archive_path, "r:*") as tf:
-                        tf.extractall(tmp.path)
-                else:
-                    raise SkError(f"Unsupported archive format for release dependency '{self.model.name}'")
-
-                extract_and_copy(self, locations, mgr, tmp)
+            if zipfile.is_zipfile(archive_path):
+                logging.info(" Unpacking %s (zip)...", self.model.name)
+                direct_unpack_zip(archive_path, mgr.path, locations)
+            elif tarfile.is_tarfile(archive_path):
+                logging.info(" Unpacking %s (tar)...", self.model.name)
+                direct_unpack_tar(archive_path, mgr.path, locations)
+            else:
+                raise SkError(f"Unsupported archive format for release dependency '{self.model.name}'")
 
         self.ctx.state.update(
             build={

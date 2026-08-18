@@ -62,11 +62,12 @@ class TestGitDriver(unittest.TestCase):
                 driver = GitDriver(ctx, dep)
                 with FileManager(ctx, "cache") as fmgr:
                     driver.update(fmgr)
-                    mock_clone.assert_called_once_with(
-                        "https://github.com/example/repo",
-                        os.path.join(tmpdir, ".sourceknight", "cache", "mygit_no_ver"),
-                        depth=1,
-                    )
+                    mock_clone.assert_called_once()
+                    self.assertEqual(mock_clone.call_args[0][0], "https://github.com/example/repo")
+                    self.assertEqual(mock_clone.call_args[0][1], os.path.join(tmpdir, ".sourceknight", "cache", "mygit_no_ver"))
+                    self.assertEqual(mock_clone.call_args[1].get("depth"), 1)
+                    self.assertIn("--single-branch", mock_clone.call_args[1].get("multi_options", []))
+                    self.assertIn("--no-tags", mock_clone.call_args[1].get("multi_options", []))
                     self.assertEqual(dep.version, "123456789abcdef")
                     self.assertIn("mygit_no_ver", ctx.state.dependencies)
 

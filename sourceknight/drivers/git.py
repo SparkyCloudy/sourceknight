@@ -30,11 +30,12 @@ class GitDriver(basedriver):
             repo = Repo(loc)
         else:
             logging.info(" Cloning from %s (shallow)", self.model.params['repo'])
+            clone_opts = ['--single-branch', '--no-tags', '-c', 'advice.detachedHead=false']
             try:
                 if self.model.version is not None:
-                    repo = Repo.clone_from(self.model.params['repo'], loc, depth=1, branch=str(self.model.version))
+                    repo = Repo.clone_from(self.model.params['repo'], loc, depth=1, branch=str(self.model.version), multi_options=clone_opts)
                 else:
-                    repo = Repo.clone_from(self.model.params['repo'], loc, depth=1)
+                    repo = Repo.clone_from(self.model.params['repo'], loc, depth=1, multi_options=clone_opts)
                 fetched = True
             except Exception:
                 if os.path.exists(loc):
@@ -63,5 +64,5 @@ class GitDriver(basedriver):
             repo.close()
 
     def unpack(self, mgr: FileManager, locations: list[dict[str, str]]) -> None:
-        with FileManager(self.ctx, 'cache') as tmp:
-            extract_and_copy(self, locations, mgr, tmp)
+        logging.info(" Unpacking %s...", self.model.name)
+        extract_and_copy(self, locations, mgr)
