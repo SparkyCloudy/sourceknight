@@ -32,6 +32,23 @@ SourceKnight brings modern package management concepts to the SourceMod ecosyste
 
 ## Installation
 
+### Option 1: Standalone Binary (Zero Dependencies)
+
+Download the pre-compiled binary executable for your platform from the [latest GitHub Release](https://github.com/SparkyCloudy/sourceknight/releases/latest):
+
+- **Linux (x86_64)**:
+  ```bash
+  curl -fsSL https://github.com/SparkyCloudy/sourceknight/releases/latest/download/sourceknight-linux-x86_64 -o /usr/local/bin/sourceknight
+  chmod +x /usr/local/bin/sourceknight
+  ```
+
+- **Windows (x86_64)**:
+  Download [`sourceknight-windows-x86_64.exe`](https://github.com/SparkyCloudy/sourceknight/releases/latest/download/sourceknight-windows-x86_64.exe) and add it to your system `PATH`.
+
+---
+
+### Option 2: Python Package (pip)
+
 Install via `pip` from GitHub:
 
 ```bash
@@ -46,7 +63,7 @@ cd sourceknight
 pip install -e .
 ```
 
-*Requires Python >= 3.12.*
+*Requires Python >= 3.12 (for pip installation).*
 
 ---
 

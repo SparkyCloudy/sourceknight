@@ -14,10 +14,12 @@ permissions:
   id-token: write
 
 jobs:
-  build-and-release:
-    name: Build & Release Package
+  detect-version:
+    name: Detect Version & Tag Status
     runs-on: ubuntu-latest
-
+    outputs:
+      should_release: ${{ steps.version_check.outputs.should_release }}
+      tag_name: ${{ steps.version_check.outputs.tag_name }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -29,7 +31,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Detect Version & Tag Status
+      - name: Check Version
         id: version_check
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -54,34 +56,120 @@ jobs:
             fi
           fi
 
+  build-wheels:
+    name: Build Python Wheels & Sdist
+    needs: detect-version
+    if: needs.detect-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install Build Tools
-        if: steps.version_check.outputs.should_release == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install build twine
 
       - name: Build Source Distribution & Wheels
-        if: steps.version_check.outputs.should_release == 'true'
         run: python -m build
 
       - name: Validate Package Metadata
-        if: steps.version_check.outputs.should_release == 'true'
         run: twine check dist/*
+
+      - name: Upload Wheel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-wheels
+          path: dist/
+
+  build-binaries:
+    name: Build Standalone Binary (${{ matrix.os }})
+    needs: detect-version
+    if: needs.detect-version.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            binary_name: sourceknight-linux-x86_64
+            target_file: dist/sourceknight-linux-x86_64
+          - os: windows-latest
+            binary_name: sourceknight-windows-x86_64
+            target_file: dist/sourceknight-windows-x86_64.exe
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Package & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller
+
+      - name: Compile Standalone Binary
+        shell: bash
+        run: |
+          pyinstaller --onefile --name "${{ matrix.binary_name }}" \
+            --collect-all git --collect-all yaml --collect-all requests \
+            sourceknight/main.py
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-binaries-${{ matrix.os }}
+          path: ${{ matrix.target_file }}
+
+  publish-release:
+    name: Publish Release & Distribute
+    needs: [detect-version, build-wheels, build-binaries]
+    if: needs.detect-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Wheel Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-wheels
+          path: release-dist
+
+      - name: Download Linux Binary Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-binaries-ubuntu-22.04
+          path: release-dist
+
+      - name: Download Windows Binary Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-binaries-windows-latest
+          path: release-dist
 
       - name: Create GitHub Release & Tag
         uses: softprops/action-gh-release@v2
-        if: steps.version_check.outputs.should_release == 'true'
         with:
-          tag_name: ${{ steps.version_check.outputs.tag_name }}
-          name: Release ${{ steps.version_check.outputs.tag_name }}
-          files: dist/*
+          tag_name: ${{ needs.detect-version.outputs.tag_name }}
+          name: Release ${{ needs.detect-version.outputs.tag_name }}
+          files: release-dist/*
           generate_release_notes: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        if: steps.version_check.outputs.should_release == 'true' && env.HAVE_PYPI_TOKEN != ''
+        if: env.HAVE_PYPI_TOKEN != ''
         env:
           HAVE_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: release-dist/
           skip-existing: true
